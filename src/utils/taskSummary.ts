@@ -24,7 +24,7 @@ export function shouldGenerateTaskSummary(): boolean {
 
 /**
  * Generate a task summary from the current turn's messages and push it
- * to the session registry so `claude ps` can display live status.
+ * to the session registry so `ccb ps` can display live status.
  *
  * Fire-and-forget from query.ts — errors are logged, never thrown.
  */

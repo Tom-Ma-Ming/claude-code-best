@@ -803,9 +803,9 @@ export type Props = {
   taskListId?: string;
   // Remote session config for --remote mode (uses CCR as execution engine)
   remoteSessionConfig?: RemoteSessionConfig;
-  // Direct connect config for `claude connect` mode (connects to a claude server)
+  // Direct connect config for `ccb connect` mode (connects to a claude server)
   directConnectConfig?: DirectConnectConfig;
-  // SSH session for `claude ssh` mode (local REPL, remote tools over ssh)
+  // SSH session for `ccb ssh` mode (local REPL, remote tools over ssh)
   sshSession?: SSHSession;
   // Thinking configuration to use when thinking is enabled
   thinkingConfig: ThinkingConfig;
@@ -1461,7 +1461,7 @@ export function REPL({
               ? 'dialog open'
               : 'input needed';
 
-  // Push status to the PID file for `claude ps`. Fire-and-forget; ps falls
+  // Push status to the PID file for `ccb ps`. Fire-and-forget; ps falls
   // back to transcript-tail derivation when this is missing/stale.
   useEffect(() => {
     if (feature('BG_SESSIONS')) {
@@ -1722,7 +1722,7 @@ export function REPL({
     setInProgressToolUseIDs,
   });
 
-  // Direct connect hook - manages WebSocket to a claude server for `claude connect` mode
+  // Direct connect hook - manages WebSocket to a claude server for `ccb connect` mode
   const directConnect = useDirectConnect({
     config: directConnectConfig,
     setMessages,
@@ -1731,7 +1731,7 @@ export function REPL({
     tools: combinedInitialTools,
   });
 
-  // SSH session hook - manages ssh child process for `claude ssh` mode.
+  // SSH session hook - manages ssh child process for `ccb ssh` mode.
   // Same callback shape as useDirectConnect; only the transport under the
   // hood differs (ChildProcess stdin/stdout vs WebSocket).
   const sshRemote = useSSHSession({
@@ -2313,7 +2313,7 @@ export function REPL({
         // Skipped for in-session /branch: the existing ref is already correct
         // (branch preserves tool_use_ids), so there's no need to reconstruct.
         // createFork() does write content-replacement entries to the forked
-        // JSONL with the fork's sessionId, so `claude -r {forkId}` also works.
+        // JSONL with the fork's sessionId, so `ccb -r {forkId}` also works.
         if (contentReplacementStateRef.current && entrypoint !== 'fork') {
           contentReplacementStateRef.current = reconstructContentReplacementState(
             messages,
@@ -4769,7 +4769,7 @@ export function REPL({
   // empty to non-empty, not on every length change -- otherwise a render loop
   // (concurrent onQuery thrashing, etc.) spams saveGlobalConfig, which hits
   // ELOCKED under concurrent sessions and falls back to unlocked writes.
-  // That write storm is the primary trigger for ~/.claude.json corruption
+  // That write storm is the primary trigger for ~/.ccb/config.json corruption
   // (GH #3117).
   const hasCountedQueueUseRef = useRef(false);
   useEffect(() => {

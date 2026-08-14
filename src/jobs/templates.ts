@@ -19,7 +19,7 @@ export interface TemplateInfo {
 
 /**
  * Discover .claude/templates directories from CWD up to git root,
- * plus the user-level ~/.claude/templates.
+ * plus the user-level ~/.ccb/templates.
  */
 function getTemplatesDirs(): string[] {
   const projectDirs = getProjectDirsUpToHome(

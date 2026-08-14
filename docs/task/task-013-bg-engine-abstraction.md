@@ -150,7 +150,7 @@ export async function handleBgStart(args: string[]): Promise<void> {
   console.log(`Background session started: ${result.sessionName}`)
   console.log(`  Engine: ${result.engineUsed}`)
   console.log(`  Log: ${result.logPath}`)
-  console.log(`  Use \`claude daemon attach ${result.sessionName}\` to reconnect.`)
+  console.log(`  Use \`ccb daemon attach ${result.sessionName}\` to reconnect.`)
 }
 ```
 
@@ -176,7 +176,7 @@ export async function attachHandler(target: string | undefined): Promise<void> {
 {
   "pid": 12345,
   "engine": "detached",
-  "logPath": "~/.claude/sessions/logs/claude-bg-a1b2c3d4.log",
+  "logPath": "~/.ccb/sessions/logs/claude-bg-a1b2c3d4.log",
   "sessionId": "...",
   "cwd": "..."
 }
@@ -186,11 +186,11 @@ export async function attachHandler(target: string | undefined): Promise<void> {
 
 ## 验证清单
 
-- [ ] Windows: `claude daemon bg` 启动后台会话，无 tmux 依赖
-- [ ] Windows: `claude daemon attach <name>` 以 tail 模式附着，Ctrl+C 退出不杀进程
+- [ ] Windows: `ccb daemon bg` 启动后台会话，无 tmux 依赖
+- [ ] Windows: `ccb daemon attach <name>` 以 tail 模式附着，Ctrl+C 退出不杀进程
 - [ ] macOS/Linux (有 tmux): 行为与当前一致
 - [ ] macOS/Linux (无 tmux): 自动 fallback 到 detached 引擎
-- [ ] `claude daemon status` 正确显示 engine 类型
+- [ ] `ccb daemon status` 正确显示 engine 类型
 - [ ] 旧格式 session JSON (无 engine 字段) 兼容
 - [ ] tsc --noEmit 零错误
 - [ ] bun test 通过

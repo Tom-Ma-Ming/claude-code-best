@@ -67,8 +67,8 @@ CLAUDE_BRIDGE_BASE_URL=https://your-server.com CLAUDE_BRIDGE_OAUTH_TOKEN=your-to
 ```
 
 ### 命令
-- `claude remote-control` / `claude rc` — 启动远程控制客户端
-- `claude bridge` — 同上（别名）
+- `ccb remote-control` / `claude rc` — 启动远程控制客户端
+- `ccb bridge` — 同上（别名）
 
 ---
 
@@ -102,7 +102,7 @@ Push-to-Talk 语音输入，音频通过 WebSocket 流式传输到 Anthropic STT
 ### 使用
 ```bash
 # 确保已通过 OAuth 登录
-claude auth login
+ccb auth login
 
 # 在会话中按住指定键说话
 # 松开后自动转写为文字输入
@@ -230,13 +230,13 @@ Daemon 模式允许 Claude Code 作为后台长驻进程运行，管理多个 wo
 ### 使用
 ```bash
 # 启动 daemon
-claude daemon start
+ccb daemon start
 
 # 查看状态
-claude daemon status
+ccb daemon status
 
 # 停止
-claude daemon stop
+ccb daemon stop
 
 # 启动远程控制服务器
 bun run rcs

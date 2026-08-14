@@ -439,7 +439,7 @@ function BriefSpinner({ mode, overrideMessage }: BriefSpinnerProps): React.React
   // Summing avoids a mode branch.
   const runningCount = useAppState(s => count(Object.values(s.tasks), isBackgroundTask) + s.remoteBackgroundTaskCount);
 
-  // Connection trouble overrides the verb — `claude assistant` is a pure viewer,
+  // Connection trouble overrides the verb — `ccb assistant` is a pure viewer,
   // nothing useful is happening while the WS is down.
   const showConnWarning = connStatus === 'reconnecting' || connStatus === 'disconnected';
   const connText = connStatus === 'reconnecting' ? 'Reconnecting' : 'Disconnected';

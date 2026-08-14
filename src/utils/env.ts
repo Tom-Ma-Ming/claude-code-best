@@ -1,5 +1,4 @@
 import memoize from 'lodash-es/memoize.js'
-import { homedir } from 'os'
 import { join } from 'path'
 import { fileSuffixForOauthConfig } from '../constants/oauth.js'
 import { isRunningWithBun } from './bundledMode.js'
@@ -12,17 +11,17 @@ type Platform = 'win32' | 'darwin' | 'linux'
 
 // Config and data paths
 export const getGlobalClaudeFile = memoize((): string => {
+  const configHome = getClaudeConfigHomeDir()
+
   // Legacy fallback for backwards compatibility
-  if (
-    getFsImplementation().existsSync(
-      join(getClaudeConfigHomeDir(), '.config.json'),
-    )
-  ) {
-    return join(getClaudeConfigHomeDir(), '.config.json')
+  if (getFsImplementation().existsSync(join(configHome, '.config.json'))) {
+    return join(configHome, '.config.json')
   }
 
-  const filename = `.claude${fileSuffixForOauthConfig()}.json`
-  return join(process.env.CLAUDE_CONFIG_DIR || homedir(), filename)
+  // Global config lives inside the config home (~/.ccb/config.json) rather
+  // than as a loose dotfile in $HOME. The oauth suffix keeps local/staging
+  // credentials in separate files from production ones.
+  return join(configHome, `config${fileSuffixForOauthConfig()}.json`)
 })
 
 const hasInternetAccess = memoize(async (): Promise<boolean> => {

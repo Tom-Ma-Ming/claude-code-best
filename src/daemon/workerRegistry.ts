@@ -17,7 +17,7 @@ const EXIT_CODE_TRANSIENT = 1
 
 /**
  * Daemon worker entry point. Called from `cli.tsx` via:
- *   `claude --daemon-worker=<kind>`
+ *   `ccb --daemon-worker=<kind>`
  *
  * The supervisor spawns this as a child process. Each `kind` maps to a
  * different long-running task. Currently only `remoteControl` is implemented

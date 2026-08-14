@@ -145,7 +145,7 @@ bun run dist/cli.js
 /remote-control
 ```
 
-环境型 Remote Control（例如 `claude remote-control` 子命令）会向 RCS 注册环境，注册成功后在终端显示连接 URL：
+环境型 Remote Control（例如 `ccb remote-control` 子命令）会向 RCS 注册环境，注册成功后在终端显示连接 URL：
 
 ```
 https://rcs.example.com/code?bridge=<environmentId>
@@ -167,11 +167,11 @@ https://rcs.example.com/code/session_<id>
 也可通过 CLI 参数直接启动：
 
 ```bash
-claude remote-control
+ccb remote-control
 # 或简写
-claude rc
+ccb rc
 # 或
-claude bridge
+ccb bridge
 ```
 
 ## Web UI 控制面板

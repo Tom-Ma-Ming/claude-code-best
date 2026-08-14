@@ -6,11 +6,11 @@
 
 ## 目标
 
-将 `claude new/list/reply` 收归 `/job` 命名空间，实现 CLI + REPL 双注册。
+将 `ccb new/list/reply` 收归 `/job` 命名空间，实现 CLI + REPL 双注册。
 
 ## 背景
 
-当前 `new`, `list`, `reply` 是顶级 CLI 命令 (`cli.tsx:250-261`)，容易与其他命令冲突（特别是 `list` 这种通用词）。需要收归 `claude job <subcommand>` 并新增 REPL `/job` 入口。
+当前 `new`, `list`, `reply` 是顶级 CLI 命令 (`cli.tsx:250-261`)，容易与其他命令冲突（特别是 `list` 这种通用词）。需要收归 `ccb job <subcommand>` 并新增 REPL `/job` 入口。
 
 ## 文件清单
 
@@ -165,12 +165,12 @@ const jobCmd = feature('TEMPLATES')
 
 ## 验证清单
 
-- [ ] `claude job list` 列出模板
-- [ ] `claude job new <template>` 创建任务
-- [ ] `claude job reply <id> <text>` 回复任务
-- [ ] `claude job status <id>` 显示任务状态
-- [ ] `claude job` (无参数) 等同于 `claude job list`
-- [ ] `claude new/list/reply` 输出 deprecation 警告 + 正常工作
+- [ ] `ccb job list` 列出模板
+- [ ] `ccb job new <template>` 创建任务
+- [ ] `ccb job reply <id> <text>` 回复任务
+- [ ] `ccb job status <id>` 显示任务状态
+- [ ] `ccb job` (无参数) 等同于 `ccb job list`
+- [ ] `ccb new/list/reply` 输出 deprecation 警告 + 正常工作
 - [ ] REPL 中 `/job` 可用
 - [ ] REPL 中 `/job list` 显示模板列表
 - [ ] tsc --noEmit 零错误

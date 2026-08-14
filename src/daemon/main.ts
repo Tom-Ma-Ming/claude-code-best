@@ -34,7 +34,7 @@ interface WorkerState {
 
 /**
  * Daemon supervisor entry point. Called from `cli.tsx` via:
- *   `claude daemon [subcommand]`
+ *   `ccb daemon [subcommand]`
  *
  * Manages the daemon supervisor AND background sessions under one namespace.
  *

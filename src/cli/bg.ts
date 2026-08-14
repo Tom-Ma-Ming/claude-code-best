@@ -72,7 +72,7 @@ function resolveSessionEngine(session: SessionEntry): 'tmux' | 'detached' {
 }
 
 /**
- * `claude daemon status` / `claude ps` — list live sessions.
+ * `ccb daemon status` / `ccb ps` — list live sessions.
  */
 export async function psHandler(_args: string[]): Promise<void> {
   const sessions = await listLiveSessions()
@@ -110,7 +110,7 @@ export async function psHandler(_args: string[]): Promise<void> {
 }
 
 /**
- * `claude daemon logs <target>` — show logs for a session.
+ * `ccb daemon logs <target>` — show logs for a session.
  */
 export async function logsHandler(target: string | undefined): Promise<void> {
   const sessions = await listLiveSessions()
@@ -155,7 +155,7 @@ export async function logsHandler(target: string | undefined): Promise<void> {
 }
 
 /**
- * `claude daemon attach <target>` — attach to a background session.
+ * `ccb daemon attach <target>` — attach to a background session.
  *
  * Engine-aware: tmux sessions use tmux attach, detached sessions use log tail.
  */
@@ -169,7 +169,7 @@ export async function attachHandler(target: string | undefined): Promise<void> {
     )
     if (bgSessions.length === 0) {
       console.log(
-        'No background sessions to attach to. Start one with `claude daemon bg`.',
+        'No background sessions to attach to. Start one with `ccb daemon bg`.',
       )
       return
     }
@@ -219,7 +219,7 @@ export async function attachHandler(target: string | undefined): Promise<void> {
 }
 
 /**
- * `claude daemon kill <target>` — kill a session.
+ * `ccb daemon kill <target>` — kill a session.
  */
 export async function killHandler(target: string | undefined): Promise<void> {
   const sessions = await listLiveSessions()
@@ -271,7 +271,7 @@ export async function killHandler(target: string | undefined): Promise<void> {
 }
 
 /**
- * `claude daemon bg [args]` — start a background session.
+ * `ccb daemon bg [args]` — start a background session.
  *
  * Cross-platform: uses TmuxEngine on macOS/Linux when tmux is available,
  * falls back to DetachedEngine on Windows or when tmux is absent.
@@ -326,11 +326,9 @@ export async function handleBgStart(args: string[]): Promise<void> {
     console.log(`  Engine: ${result.engineUsed}`)
     console.log(`  Log: ${result.logPath}`)
     console.log()
-    console.log(
-      `Use \`claude daemon attach ${result.sessionName}\` to reconnect.`,
-    )
-    console.log(`Use \`claude daemon status\` to check status.`)
-    console.log(`Use \`claude daemon kill ${result.sessionName}\` to stop.`)
+    console.log(`Use \`ccb daemon attach ${result.sessionName}\` to reconnect.`)
+    console.log(`Use \`ccb daemon status\` to check status.`)
+    console.log(`Use \`ccb daemon kill ${result.sessionName}\` to stop.`)
   } catch (e) {
     console.error(e instanceof Error ? e.message : String(e))
     process.exitCode = 1

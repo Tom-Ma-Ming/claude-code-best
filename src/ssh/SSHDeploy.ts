@@ -1,11 +1,12 @@
 import { existsSync } from 'fs'
 import { resolve } from 'path'
+import { CLI_NAME } from 'src/constants/product.js'
 import { logForDebugging } from 'src/utils/debug.js'
 
 const SSH_TIMEOUT_MS = 60_000
 const REMOTE_BIN_DIR = '~/.local/bin'
 const REMOTE_CLI_FILE = 'claude-code-cli.js'
-const REMOTE_WRAPPER = 'claude'
+const REMOTE_WRAPPER = CLI_NAME
 
 export interface DeployOptions {
   host: string

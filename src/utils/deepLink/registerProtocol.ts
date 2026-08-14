@@ -3,7 +3,7 @@
  *
  * Registers the `claude-cli://` custom URI scheme with the OS,
  * so that clicking a `claude-cli://` link in a browser (or any app) will
- * invoke `claude --handle-uri <url>`.
+ * invoke `ccb --handle-uri <url>`.
  *
  * Platform details:
  *   macOS  — Creates a minimal .app trampoline in ~/Applications with
@@ -22,6 +22,7 @@ import {
   type AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
   logEvent,
 } from 'src/services/analytics/index.js'
+import { CLI_NAME, cliBinaryName } from '../../constants/product.js'
 import { logForDebugging } from '../debug.js'
 import { getClaudeConfigHomeDir } from '../envUtils.js'
 import { getErrnoCode } from '../errors.js'
@@ -43,7 +44,7 @@ const MACOS_SYMLINK_PATH = path.join(
   MACOS_APP_DIR,
   'Contents',
   'MacOS',
-  'claude',
+  CLI_NAME,
 )
 function linuxDesktopPath(): string {
   return path.join(getXDGDataHome(), 'applications', DESKTOP_FILE_NAME)
@@ -239,7 +240,7 @@ export async function registerProtocolHandler(
  * (dev builds, non-native installs).
  */
 async function resolveClaudePath(): Promise<string> {
-  const binaryName = process.platform === 'win32' ? 'claude.exe' : 'claude'
+  const binaryName = cliBinaryName()
   const stablePath = path.join(getUserBinDir(), binaryName)
   try {
     await fs.realpath(stablePath)
@@ -253,7 +254,7 @@ async function resolveClaudePath(): Promise<string> {
  * Check whether the OS-level protocol handler is already registered AND
  * points at the expected `claude` binary. Reads the registration artifact
  * directly (symlink target, .desktop Exec line, registry value) rather than
- * a cached flag in ~/.claude.json, so:
+ * a cached flag in ~/.ccb/config.json, so:
  *   - the check is per-machine (config can sync across machines; OS state can't)
  *   - stale paths self-heal (install-method change → re-register next session)
  *   - deleted artifacts self-heal
@@ -311,7 +312,7 @@ export async function ensureDeepLinkProtocolRegistered(): Promise<void> {
   // EACCES/ENOSPC are deterministic — retrying next session won't help.
   // Throttle to once per 24h so a read-only ~/.local/share/applications
   // doesn't generate a failure event on every startup. Marker lives in
-  // ~/.claude (per-machine, not synced) rather than ~/.claude.json (can sync).
+  // ~/.ccb (per-machine, not synced) rather than ~/.ccb/config.json (can sync).
   const failureMarkerPath = path.join(
     getClaudeConfigHomeDir(),
     '.deep-link-register-failed',

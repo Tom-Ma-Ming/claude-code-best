@@ -170,9 +170,11 @@ const mockedGetClaudeConfigHomeDirSM: (() => string) & {
   () =>
     useMockForSessionMemory
       ? '/mock/home/.claude'
-      : (process.env.CLAUDE_CONFIG_DIR ?? join(homedir(), '.claude')).normalize(
-          'NFC',
-        ),
+      : (
+          process.env.CCB_CONFIG_DIR ??
+          process.env.CLAUDE_CONFIG_DIR ??
+          join(homedir(), '.ccb')
+        ).normalize('NFC'),
   { cache: { clear: () => {}, get: (_k: unknown) => undefined } },
 )
 
@@ -196,7 +198,9 @@ mock.module('src/utils/envUtils.js', () => ({
     join(
       useMockForSessionMemory
         ? '/mock/home/.claude'
-        : (process.env.CLAUDE_CONFIG_DIR ?? join(homedir(), '.claude')),
+        : (process.env.CCB_CONFIG_DIR ??
+            process.env.CLAUDE_CONFIG_DIR ??
+            join(homedir(), '.ccb')),
       'teams',
     ),
   hasNodeOption: (flag: string) => {

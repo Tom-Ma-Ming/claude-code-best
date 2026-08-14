@@ -135,7 +135,7 @@ export const callTeleport: LocalJSXCommandCall = async (
           error: meta(msg.slice(0, 200)),
         })
         onDone(
-          'Teleport: permission denied fetching sessions. Check your OAuth token (`claude auth status`).',
+          'Teleport: permission denied fetching sessions. Check your OAuth token (`ccb auth status`).',
           { display: 'system' },
         )
         return null
@@ -155,7 +155,7 @@ export const callTeleport: LocalJSXCommandCall = async (
           error: meta(msg.slice(0, 200)),
         })
         onDone(
-          `Teleport: authentication error — ${msg}. Try \`claude auth login\`.`,
+          `Teleport: authentication error — ${msg}. Try \`ccb auth login\`.`,
           { display: 'system' },
         )
         return null

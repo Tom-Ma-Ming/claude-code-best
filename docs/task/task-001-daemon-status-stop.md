@@ -7,7 +7,7 @@
 
 ## 目标
 
-让 `claude daemon status` 和 `claude daemon stop` 在任意 CLI 进程中都能正确工作，不依赖 TUI 内存态。
+让 `ccb daemon status` 和 `ccb daemon stop` 在任意 CLI 进程中都能正确工作，不依赖 TUI 内存态。
 
 ## 背景
 
@@ -32,7 +32,7 @@
 
 ### 状态文件
 
-路径: `~/.claude/daemon/remote-control.json`
+路径: `~/.ccb/daemon/remote-control.json`
 
 ```json
 {
@@ -61,10 +61,10 @@
 
 ## 验证步骤
 
-- [ ] `claude daemon start` 正常启动并写入状态文件
-- [ ] 新开终端执行 `claude daemon status`，显示 `running`
-- [ ] 执行 `claude daemon stop`，daemon 正常退出
-- [ ] 再次执行 `claude daemon status`，返回 `stopped` 或 `stale cleaned`
+- [ ] `ccb daemon start` 正常启动并写入状态文件
+- [ ] 新开终端执行 `ccb daemon status`，显示 `running`
+- [ ] 执行 `ccb daemon stop`，daemon 正常退出
+- [ ] 再次执行 `ccb daemon status`，返回 `stopped` 或 `stale cleaned`
 - [ ] Windows 下 stop 超时兜底正常工作
 
 ## 风险

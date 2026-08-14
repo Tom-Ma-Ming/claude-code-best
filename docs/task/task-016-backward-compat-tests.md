@@ -31,14 +31,14 @@
 
 | 旧命令 | 新命令 | 处理方式 |
 |--------|--------|---------|
-| `claude ps` | `claude daemon status` | stderr 输出 `[deprecated] Use: claude daemon status`，然后执行 |
-| `claude logs <x>` | `claude daemon logs <x>` | 同上 |
-| `claude attach <x>` | `claude daemon attach <x>` | 同上 |
-| `claude kill <x>` | `claude daemon kill <x>` | 同上 |
-| `claude --bg` | `claude daemon bg` | 保留为快捷方式，**不** deprecate (太常用) |
-| `claude new <t>` | `claude job new <t>` | stderr deprecation + 执行 |
-| `claude list` | `claude job list` | stderr deprecation + 执行 |
-| `claude reply <id>` | `claude job reply <id>` | stderr deprecation + 执行 |
+| `ccb ps` | `ccb daemon status` | stderr 输出 `[deprecated] Use: claude daemon status`，然后执行 |
+| `ccb logs <x>` | `ccb daemon logs <x>` | 同上 |
+| `ccb attach <x>` | `ccb daemon attach <x>` | 同上 |
+| `ccb kill <x>` | `ccb daemon kill <x>` | 同上 |
+| `ccb --bg` | `ccb daemon bg` | 保留为快捷方式，**不** deprecate (太常用) |
+| `ccb new <t>` | `ccb job new <t>` | stderr deprecation + 执行 |
+| `ccb list` | `ccb job list` | stderr deprecation + 执行 |
+| `ccb reply <id>` | `ccb job reply <id>` | stderr deprecation + 执行 |
 
 **关键**: deprecation 输出到 stderr 而非 stdout，不影响脚本管道。
 

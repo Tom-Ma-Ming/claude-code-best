@@ -6,7 +6,7 @@ import { getCwd } from 'src/utils/cwd.js'
 import { findCanonicalGitRoot } from 'src/utils/git.js'
 import { sanitizePath } from 'src/utils/path.js'
 
-// Persistent agent memory scope: 'user' (~/.claude/agent-memory/), 'project' (.claude/agent-memory/), or 'local' (.claude/agent-memory-local/)
+// Persistent agent memory scope: 'user' (~/.ccb/agent-memory/), 'project' (.claude/agent-memory/), or 'local' (.claude/agent-memory-local/)
 export type AgentMemoryScope = 'user' | 'project' | 'local'
 
 /**
@@ -120,7 +120,7 @@ export function getMemoryScopeDisplay(
  * Creates the memory directory if needed and returns a prompt with memory contents.
  *
  * @param agentType The agent's type name (used as directory name)
- * @param scope 'user' for ~/.claude/agent-memory/ or 'project' for .claude/agent-memory/
+ * @param scope 'user' for ~/.ccb/agent-memory/ or 'project' for .claude/agent-memory/
  */
 export function loadAgentMemoryPrompt(
   agentType: string,

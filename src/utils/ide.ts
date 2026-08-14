@@ -292,7 +292,7 @@ export function getTerminalIdeType(): IdeType | null {
 }
 
 /**
- * Gets sorted IDE lockfiles from ~/.claude/ide directory
+ * Gets sorted IDE lockfiles from ~/.ccb/ide directory
  * @returns Array of full lockfile paths sorted by modification time (newest first)
  */
 export async function getSortedIdeLockfiles(): Promise<string[]> {
@@ -474,6 +474,8 @@ export async function getIdeLockfilesPaths(): Promise<string[]> {
   if (windowsHome) {
     const converter = new WindowsToWSLConverter(process.env.WSL_DISTRO_NAME)
     const wslPath = converter.toLocalPath(windowsHome)
+    // Probe both names: the Windows-side install may predate the ccb rename.
+    paths.push(resolve(wslPath, '.ccb', 'ide'))
     paths.push(resolve(wslPath, '.claude', 'ide'))
   }
 
@@ -499,6 +501,7 @@ export async function getIdeLockfilesPaths(): Promise<string[]> {
       ) {
         continue // Skip system directories
       }
+      paths.push(join(usersDir, user.name, '.ccb', 'ide'))
       paths.push(join(usersDir, user.name, '.claude', 'ide'))
     }
   } catch (error: unknown) {

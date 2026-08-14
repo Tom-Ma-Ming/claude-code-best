@@ -75,7 +75,7 @@ export function registerMcpAddCommand(mcp: Command): void {
     .addOption(
       new Option(
         '--xaa',
-        "Enable XAA (SEP-990) for this server. Requires 'claude mcp xaa setup' first. Also requires --client-id and --client-secret (for the MCP server's AS).",
+        "Enable XAA (SEP-990) for this server. Requires 'ccb mcp xaa setup' first. Also requires --client-id and --client-secret (for the MCP server's AS).",
       ).hideHelp(!isXaaEnabled()),
     )
     .action(async (name, commandOrUrl, args, options) => {
@@ -112,9 +112,7 @@ export function registerMcpAddCommand(mcp: Command): void {
           if (!options.clientId) missing.push('--client-id')
           if (!options.clientSecret) missing.push('--client-secret')
           if (!getXaaIdpSettings()) {
-            missing.push(
-              "'claude mcp xaa setup' (settings.xaaIdp not configured)",
-            )
+            missing.push("'ccb mcp xaa setup' (settings.xaaIdp not configured)")
           }
           if (missing.length) {
             cliError(`Error: --xaa requires: ${missing.join(', ')}`)

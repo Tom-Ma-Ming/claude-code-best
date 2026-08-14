@@ -1,5 +1,18 @@
 export const PRODUCT_URL = 'https://github.com/claude-code-best/claude-code'
 
+/**
+ * The CLI command / executable name. Matches the `bin` entry in package.json.
+ * Used for commander's program name, process.title, PATH lookups, installer
+ * symlinks and the SSH remote wrapper — anywhere the binary is referenced by
+ * name rather than by path.
+ */
+export const CLI_NAME = 'ccb'
+
+/** Platform-correct executable filename for {@link CLI_NAME}. */
+export function cliBinaryName(platform: string = process.platform): string {
+  return platform.startsWith('win32') ? `${CLI_NAME}.exe` : CLI_NAME
+}
+
 // Claude Code Remote session URLs
 export const CLAUDE_AI_BASE_URL = 'https://claude.ai'
 export const CLAUDE_AI_STAGING_BASE_URL = 'https://claude-ai.staging.ant.dev'

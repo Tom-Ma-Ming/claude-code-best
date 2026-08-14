@@ -4,6 +4,7 @@
 
 import { access, chmod, writeFile } from 'fs/promises'
 import { join } from 'path'
+import { CLI_NAME } from '../constants/product.js'
 import { type ReleaseChannel, saveGlobalConfig } from './config.js'
 import { getClaudeConfigHomeDir } from './envUtils.js'
 import { getErrnoCode } from './errors.js'
@@ -20,7 +21,7 @@ function getLocalInstallDir(): string {
   return join(getClaudeConfigHomeDir(), 'local')
 }
 export function getLocalClaudePath(): string {
-  return join(getLocalInstallDir(), 'claude')
+  return join(getLocalInstallDir(), CLI_NAME)
 }
 
 /**
@@ -28,7 +29,10 @@ export function getLocalClaudePath(): string {
  */
 export function isRunningFromLocalInstallation(): boolean {
   const execPath = process.argv[1] || ''
-  return execPath.includes('/.claude/local/node_modules/')
+  return (
+    execPath.includes(`/local/node_modules/`) &&
+    execPath.startsWith(getClaudeConfigHomeDir())
+  )
 }
 
 /**
@@ -71,10 +75,10 @@ export async function ensureLocalPackageEnvironment(): Promise<boolean> {
     )
 
     // Create the wrapper script if it doesn't exist
-    const wrapperPath = join(localInstallDir, 'claude')
+    const wrapperPath = join(localInstallDir, CLI_NAME)
     const created = await writeIfMissing(
       wrapperPath,
-      `#!/bin/sh\nexec "${localInstallDir}/node_modules/.bin/claude" "$@"`,
+      `#!/bin/sh\nexec "${localInstallDir}/node_modules/.bin/${CLI_NAME}" "$@"`,
       0o755,
     )
     if (created) {
@@ -143,7 +147,7 @@ export async function installOrUpdateClaudePackage(
  */
 export async function localInstallationExists(): Promise<boolean> {
   try {
-    await access(join(getLocalInstallDir(), 'node_modules', '.bin', 'claude'))
+    await access(join(getLocalInstallDir(), 'node_modules', '.bin', CLI_NAME))
     return true
   } catch {
     return false

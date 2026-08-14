@@ -2,7 +2,7 @@
  * Files are loaded in the following order:
  *
  * 1. Managed memory (eg. /etc/claude-code/CLAUDE.md) - Global instructions for all users
- * 2. User memory (~/.claude/CLAUDE.md) - Private global instructions for all projects
+ * 2. User memory (~/.ccb/CLAUDE.md) - Private global instructions for all projects
  * 3. Project memory (CLAUDE.md, .claude/CLAUDE.md, and .claude/rules/*.md in project roots) - Instructions checked into the codebase
  * 4. Local memory (CLAUDE.local.md in project roots) - Private project-specific instructions
  *
@@ -832,7 +832,7 @@ export const getMemoryFiles = memoize(
           true, // User memory can always include external files
         )),
       )
-      // Process User ~/.claude/rules/*.md files
+      // Process User ~/.ccb/rules/*.md files
       const userClaudeRulesDir = getUserClaudeRulesDir()
       result.push(
         ...(await processMdRules({
@@ -856,7 +856,7 @@ export const getMemoryFiles = memoize(
     }
 
     // When running from a git worktree nested inside its main repo (e.g.,
-    // .claude/worktrees/<name>/ from `claude -w`), the upward walk passes
+    // .claude/worktrees/<name>/ from `ccb -w`), the upward walk passes
     // through both the worktree root and the main repo root. Both contain
     // checked-in files like CLAUDE.md and .claude/rules/*.md, so the same
     // content gets loaded twice. Skip Project-type (checked-in) files from

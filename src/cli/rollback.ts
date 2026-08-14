@@ -1,5 +1,5 @@
 /**
- * `claude rollback [target]` — roll back to a previous Claude Code version.
+ * `ccb rollback [target]` — roll back to a previous Claude Code version.
  *
  * ANT-only command (USER_TYPE === "ant").
  *
@@ -15,7 +15,7 @@ export async function rollback(
   if (options?.list) {
     console.log('Recent versions:')
     console.log('  (version listing requires access to the release registry)')
-    console.log('  Use `claude update --list` for available versions.')
+    console.log('  Use `ccb update --list` for available versions.')
     return
   }
 
