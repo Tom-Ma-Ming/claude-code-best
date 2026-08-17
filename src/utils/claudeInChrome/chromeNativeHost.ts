@@ -16,9 +16,10 @@ import {
   unlink,
 } from 'fs/promises'
 import { createServer, type Server, type Socket } from 'net'
-import { homedir, platform } from 'os'
+import { platform } from 'os'
 import { join } from 'path'
 import { z } from 'zod'
+import { getClaudeConfigHomeDir } from '../envUtils.js'
 import { lazySchema } from '../lazySchema.js'
 import { jsonParse, jsonStringify } from '../slowOperations.js'
 import { getSecureSocketPath, getSocketDir } from './common.js'
@@ -26,12 +27,16 @@ import { getSecureSocketPath, getSocketDir } from './common.js'
 const VERSION = '1.0.0'
 const MAX_MESSAGE_SIZE = 1024 * 1024 // 1MB - Max message size that can be sent to Chrome
 
-const LOG_FILE =
-  process.env.USER_TYPE === 'ant'
-    ? join(homedir(), '.claude', 'debug', 'chrome-native-host.txt')
+// Lazy: getClaudeConfigHomeDir() is memoized off the config-dir env vars, so
+// resolving it at module scope would cache a value set before main() runs.
+function getLogFile(): string | undefined {
+  return process.env.USER_TYPE === 'ant'
+    ? join(getClaudeConfigHomeDir(), 'debug', 'chrome-native-host.txt')
     : undefined
+}
 
 function log(message: string, ...args: unknown[]): void {
+  const LOG_FILE = getLogFile()
   if (LOG_FILE) {
     const timestamp = new Date().toISOString()
     const formattedArgs = args.length > 0 ? ' ' + jsonStringify(args) : ''

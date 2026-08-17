@@ -49,7 +49,7 @@
 ### new 命令
 
 - 解析模板
-- 在 `~/.claude/jobs/<job-id>/` 下创建 job 目录
+- 在 `~/.ccb/jobs/<job-id>/` 下创建 job 目录
 - 写入 `template.md`, `input.txt`, `state.json`
 - 返回 job id 与目录路径
 

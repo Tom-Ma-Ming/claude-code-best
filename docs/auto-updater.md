@@ -14,9 +14,9 @@ Claude Code 拥有一套复杂的多策略自动更新系统，支持三种安�
 |---|---|---|
 | `native` | 从 GCS/Artifactory 下载二进制文件，通过符号链接激活 | 是（静默） |
 | `npm-global` | `npm install -g` / `bun install -g` | 是（静默） |
-| `npm-local` | `npm install` 到 `~/.claude/local/` | 是（静默） |
+| `npm-local` | `npm install` 到 `~/.ccb/local/` | 是（静默） |
 | `package-manager` | 显示通知，附带对应操作系统的升级命令 | 否（仅通知） |
-| `development` | 不适用 — 执行 `claude update` 时报错 | 不适用 |
+| `development` | 不适用 — 执行 `ccb update` 时报错 | 不适用 |
 
 ### 策略路由
 
@@ -95,7 +95,7 @@ void assertMinVersion();
 
 ## 手动 CLI 命令
 
-### `claude update` / `claude upgrade`
+### `ccb update` / `ccb upgrade`
 
 **文件**: `src/cli/update.ts`
 
@@ -106,19 +106,19 @@ void assertMinVersion();
    - `development` → 报错（"开发版本不支持自动更新"）
    - `package-manager` → 打印对应操作系统的更新命令
    - `native` → 使用原生安装器的 `updateLatest()`
-   - `npm-local` → 在 `~/.claude/local/` 执行 `npm install`
+   - `npm-local` → 在 `~/.ccb/local/` 执行 `npm install`
    - `npm-global` → 执行 `npm install -g`（含权限检查）
 4. 报告当前版本、最新版本、成功/失败状态
 
-### `claude rollback [target]`（仅限内部）
+### `ccb rollback [target]`（仅限内部）
 
 回滚到之前的版本。支持 `--list`、`--dry-run`、`--safe` 标志。
 
-### `claude install [target]`
+### `ccb install [target]`
 
 安装或重新安装原生构建版本。接受可选的版本目标参数。
 
-### `claude doctor`
+### `ccb doctor`
 
 检查自动更新器的健康状态，报告状态、权限和配置信息。
 
@@ -169,7 +169,7 @@ Windows 系统使用文件复制而非符号链接。
 
 防止并发更新进程破坏安装：
 
-- 锁文件：`~/.claude/update.lock`（或等效路径）
+- 锁文件：`~/.ccb/update.lock`（或等效路径）
 - 5 分钟超时 — 超过 5 分钟的锁被视为过期，强制获取
 - 进程将其 PID 写入锁文件
 - `acquireLock()` 和 `releaseLock()` 同时被 JS/npm 和原生安装器使用
@@ -218,7 +218,7 @@ React hook `useUpdateNotification(updatedVersion)` — 确保每次 semver 变�
 
 1. 从 `src/setup.ts:387` 在每次启动时调用
 2. 从 GitHub 获取 changelog
-3. 缓存到 `~/.claude/cache/changelog.md`
+3. 缓存到 `~/.ccb/cache/changelog.md`
 4. 展示比 `lastReleaseNotesSeen` 更新的版本的更新日志
 5. 使用 semver 比较确定需要展示哪些日志
 
@@ -258,10 +258,10 @@ React hook `useUpdateNotification(updatedVersion)` — 确保每次 semver 变�
 | 文件 | 职责 |
 |---|---|
 | `src/utils/autoUpdater.ts` | 核心逻辑：版本检查、npm 安装、文件锁、最低/最高版本门控 |
-| `src/cli/update.ts` | `claude update` 命令处理 |
+| `src/cli/update.ts` | `ccb update` 命令处理 |
 | `src/utils/nativeInstaller/installer.ts` | 原生二进制安装器：下载、版本管理、符号链接、清理 |
 | `src/utils/nativeInstaller/download.ts` | 从 GCS/Artifactory 下载二进制文件并校验 |
-| `src/utils/localInstaller.ts` | 本地安装器（`~/.claude/local/`）基于 npm |
+| `src/utils/localInstaller.ts` | 本地安装器（`~/.ccb/local/`）基于 npm |
 | `src/components/AutoUpdaterWrapper.tsx` | 基于安装类型的策略路由 |
 | `src/components/AutoUpdater.tsx` | JS/npm 后台自动更新器（30 分钟间隔） |
 | `src/components/NativeAutoUpdater.tsx` | 原生二进制后台自动更新器（30 分钟间隔） |

@@ -59,7 +59,7 @@ The fix bounds all 5 with FIFO/LRU eviction at sensible sizes (200–1000 entrie
 Three reasons aside from the unbounded-cache concern:
 
 1. **Implicit cost**: `intentNormalize` calls Haiku on cache miss. Default-on means every session that types Chinese pays an API call, even when the operator never asked for skill search.
-2. **Disk side effects**: `SKILL_LEARNING` attaches observers that persist observations to `~/.claude` storage. Storage volume should be opt-in, not background.
+2. **Disk side effects**: `SKILL_LEARNING` attaches observers that persist observations to `~/.ccb` storage. Storage volume should be opt-in, not background.
 3. **Experimental status**: the flag is literally named `EXPERIMENTAL_*`. Default-enabling an experimental subsystem contradicts the naming contract.
 
 **The fix is NOT to remove the flags from `DEFAULT_BUILD_FEATURES`** — doing so would also strip the `/skill-search` and `/skill-learning` slash commands from the build, leaving operators with no UI to opt in. Instead the activation logic in `featureCheck.ts` was changed to a two-layer gate:

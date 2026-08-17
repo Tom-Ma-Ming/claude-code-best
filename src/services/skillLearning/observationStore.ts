@@ -1,6 +1,7 @@
 import { mkdir, readFile, rename, stat, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { createHash, randomUUID } from 'node:crypto'
+import { getClaudeConfigHomeDir } from 'src/utils/envUtils.js'
 import type {
   SkillLearningProjectContext as BaseSkillLearningProjectContext,
   SkillObservation as BaseSkillObservation,
@@ -80,7 +81,7 @@ export function getSkillLearningRoot(
   if (process.env.CLAUDE_SKILL_LEARNING_HOME) {
     return process.env.CLAUDE_SKILL_LEARNING_HOME
   }
-  return join(process.env.HOME ?? process.cwd(), '.claude', 'skill-learning')
+  return join(getClaudeConfigHomeDir(), 'skill-learning')
 }
 
 export function getObservationFilePath(

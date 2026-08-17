@@ -1,6 +1,6 @@
 /**
  * MCP subcommand handlers — extracted from main.tsx for lazy loading.
- * These are dynamically imported only when the corresponding `claude mcp *` command runs.
+ * These are dynamically imported only when the corresponding `ccb mcp *` command runs.
  */
 
 import { stat } from 'fs/promises';
@@ -153,7 +153,7 @@ export async function mcpListHandler(): Promise<void> {
   logEvent('tengu_mcp_list', {});
   const { servers: configs } = await getAllMcpConfigs();
   if (Object.keys(configs).length === 0) {
-    console.log('No MCP servers configured. Use `claude mcp add` to add a server.');
+    console.log('No MCP servers configured. Use `ccb mcp add` to add a server.');
   } else {
     console.log('Checking MCP server health...\n');
 

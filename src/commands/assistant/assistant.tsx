@@ -31,11 +31,11 @@ interface WizardProps {
 }
 
 /**
- * Install wizard for assistant mode. Shown when `claude assistant` finds
+ * Install wizard for assistant mode. Shown when `ccb assistant` finds
  * zero CCR sessions. Guides the user to start a daemon that registers
  * a bridge → CCR cloud session.
  *
- * After installation, main.tsx tells the user to run `claude assistant`
+ * After installation, main.tsx tells the user to run `ccb assistant`
  * again in a few seconds (daemon needs time to register the bridge session).
  */
 export function NewInstallWizard({ defaultDir, onInstalled, onCancel, onError }: WizardProps): React.ReactNode {

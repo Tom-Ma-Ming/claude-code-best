@@ -151,7 +151,7 @@ function printResumeHint(): void {
   ) {
     try {
       const sessionId = getSessionId()
-      // Don't show resume hint if no session file exists (e.g., subcommands like `claude update`)
+      // Don't show resume hint if no session file exists (e.g., subcommands like `ccb update`)
       if (!sessionIdExists(sessionId)) {
         return
       }

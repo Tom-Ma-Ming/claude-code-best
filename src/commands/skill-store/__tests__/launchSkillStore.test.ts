@@ -373,7 +373,7 @@ describe('install action', () => {
     expect(writeFileMock).not.toHaveBeenCalled()
   })
 
-  test('install writes to ~/.claude/skills/<name>/SKILL.md path', async () => {
+  test('install writes to ~/.ccb/skills/<name>/SKILL.md path', async () => {
     const skill = {
       skill_id: 'sk_path',
       name: 'path-test',

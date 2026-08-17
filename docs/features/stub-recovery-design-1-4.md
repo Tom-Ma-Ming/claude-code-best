@@ -11,7 +11,7 @@
 - 优先复用已有状态、传输层、日志与配置能力，不重造协议。
 - 设计以当前仓库实际代码为准，不以旧文档的理想状态为准。
 
-## 1. `claude daemon status` / `claude daemon stop`
+## 1. `ccb daemon status` / `ccb daemon stop`
 
 ### 现状
 
@@ -25,13 +25,13 @@
 
 ### 目标
 
-- 让 `claude daemon status` 和 `claude daemon stop` 在另一个 CLI 进程中也能正确工作。
+- 让 `ccb daemon status` 和 `ccb daemon stop` 在另一个 CLI 进程中也能正确工作。
 - 不依赖 TUI 内存态，不要求当前命令进程就是启动 daemon 的那个进程。
 
 ### MVP 方案
 
 - 新增 daemon 状态文件，例如：
-  `~/.claude/daemon/remote-control.json`
+  `~/.ccb/daemon/remote-control.json`
 - `start` 时写入：
   - supervisor pid
   - cwd
@@ -58,10 +58,10 @@
 
 ### 验证
 
-1. `claude daemon start`
-2. 新开终端执行 `claude daemon status`
-3. 执行 `claude daemon stop`
-4. 再次执行 `claude daemon status`，确认返回 `stopped` 或清晰的 `stale cleaned`
+1. `ccb daemon start`
+2. 新开终端执行 `ccb daemon status`
+3. 执行 `ccb daemon stop`
+4. 再次执行 `ccb daemon status`，确认返回 `stopped` 或清晰的 `stale cleaned`
 
 ### 风险
 
@@ -176,7 +176,7 @@
   - 显示模板名、description、路径
 - `new <template> [args...]`
   - 解析模板
-  - 在 `~/.claude/jobs/<job-id>/` 下创建 job 目录
+  - 在 `~/.ccb/jobs/<job-id>/` 下创建 job 目录
   - 写入 `template.md`、`input.txt`、`state.json`
   - 返回 job id 与目录
 - `reply <job-id> <text>`
@@ -241,8 +241,8 @@
 
 ### Phase 4A：MVP
 
-- 只支持 `claude assistant <sessionId>`
-- 对 `claude assistant` 无参数模式，先返回明确提示：
+- 只支持 `ccb assistant <sessionId>`
+- 对 `ccb assistant` 无参数模式，先返回明确提示：
   - 当前版本需要显式 `sessionId`
   - discovery 尚未启用
 - 这样可以直接复用现有 attach 分支，不必先恢复 chooser/install wizard
@@ -251,7 +251,7 @@
 
 - 恢复 `discoverAssistantSessions()`
 - 数据来源优先复用现有 sessions / bridge / teleport API，而不是新协议
-- 让 `claude assistant` 无参数时能拿到候选 session 列表
+- 让 `ccb assistant` 无参数时能拿到候选 session 列表
 
 ### Phase 4C
 
@@ -283,7 +283,7 @@
 
 ### 验证
 
-1. `claude assistant <sessionId>` 能进入 remote viewer
+1. `ccb assistant <sessionId>` 能进入 remote viewer
 2. 历史懒加载工作正常
 3. 无参数模式先给出明确提示
 4. 后续阶段再分别验证 discovery / chooser / install
@@ -300,7 +300,7 @@
 
 ## 建议执行顺序
 
-1. `claude daemon status` / `claude daemon stop`
+1. `ccb daemon status` / `ccb daemon stop`
 2. `BG_SESSIONS` 先做 `ps/logs/kill`
 3. `TEMPLATES` 先做 job 文件系统 MVP
 4. `assistant [sessionId]` 先做显式 sessionId attach，再补 discovery/chooser/install

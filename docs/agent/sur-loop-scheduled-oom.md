@@ -461,7 +461,7 @@ chore: reformat processSlashCommand with Biome   # ~250 lines, formatter-only
 feat: thread autonomy run id through forked slash commands for deferred completion   # ~50 lines, contract logic
 ```
 
-This satisfies `~/.claude/rules/deep-debug/core.md` §2 ("bug fix 不允许混入...格式化")
+This satisfies `~/.ccb/rules/deep-debug/core.md` §2 ("bug fix 不允许混入...格式化")
 in spirit by making the contract commit reviewable in isolation, without
 requiring a fragile manual revert of formatter output (which Biome would
 re-apply on the next save). All other 7 modified files in the OOM fix do not

@@ -4,7 +4,7 @@ import { spawnSync } from 'child_process'
 import { findGitRoot } from '../utils/git.js'
 
 /**
- * `claude up` — run the "# claude up" section from the nearest CLAUDE.md.
+ * `ccb up` — run the "# claude up" section from the nearest CLAUDE.md.
  *
  * Walks up from CWD looking for CLAUDE.md files, extracts the section
  * under the `# claude up` heading, and executes it as a shell script.

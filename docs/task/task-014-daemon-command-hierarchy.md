@@ -14,7 +14,7 @@
 - `cli.tsx:203-212`: `daemon [start|status|stop]` → `daemon/main.ts`
 - `cli.tsx:217-246`: `ps|logs|attach|kill|--bg` → `cli/bg.ts`
 
-需要合并为统一的 `claude daemon <subcommand>` 入口，并新增 REPL `/daemon` 斜杠命令。
+需要合并为统一的 `ccb daemon <subcommand>` 入口，并新增 REPL `/daemon` 斜杠命令。
 
 ## 文件清单
 
@@ -243,7 +243,7 @@ const daemonCmd =
 Claude Code Daemon — background process management
 
 USAGE
-  claude daemon [subcommand]
+  ccb daemon [subcommand]
 
 SUBCOMMANDS
   status      Show daemon and session status (default)
@@ -261,14 +261,14 @@ REPL
 
 ## 验证清单
 
-- [ ] `claude daemon` (无参数) 显示统一状态面板
-- [ ] `claude daemon status` 显示 supervisor + 会话列表
-- [ ] `claude daemon start/stop` 与当前行为一致
-- [ ] `claude daemon bg` 启动后台会话 (调用 BgEngine)
-- [ ] `claude daemon attach/logs/kill <target>` 功能正常
-- [ ] `claude ps` 输出 deprecation 警告 + 正常工作
-- [ ] `claude logs/attach/kill` 同上
-- [ ] `claude --bg` 快捷方式正常
+- [ ] `ccb daemon` (无参数) 显示统一状态面板
+- [ ] `ccb daemon status` 显示 supervisor + 会话列表
+- [ ] `ccb daemon start/stop` 与当前行为一致
+- [ ] `ccb daemon bg` 启动后台会话 (调用 BgEngine)
+- [ ] `ccb daemon attach/logs/kill <target>` 功能正常
+- [ ] `ccb ps` 输出 deprecation 警告 + 正常工作
+- [ ] `ccb logs/attach/kill` 同上
+- [ ] `ccb --bg` 快捷方式正常
 - [ ] REPL 中 `/daemon` 可用，tab 补全显示
 - [ ] REPL 中 `/daemon status` 显示状态信息
 - [ ] tsc --noEmit 零错误

@@ -34,11 +34,11 @@
 | `src/commands/assistant/index.ts` | 实现显式 sessionId 参数入口 |
 
 **行为:**
-- `claude assistant <sessionId>` — 进入 remote viewer
-- `claude assistant` (无参数) — 返回明确提示: 当前版本需要显式 sessionId，discovery 尚未启用
+- `ccb assistant <sessionId>` — 进入 remote viewer
+- `ccb assistant` (无参数) — 返回明确提示: 当前版本需要显式 sessionId，discovery 尚未启用
 
 **验证:**
-- [ ] `claude assistant <sessionId>` 能进入 remote viewer
+- [ ] `ccb assistant <sessionId>` 能进入 remote viewer
 - [ ] 历史懒加载工作正常
 - [ ] 无参数模式给出明确提示
 
@@ -52,7 +52,7 @@
 
 **行为:**
 - 数据来源优先复用现有 sessions / bridge / teleport API，不新增协议
-- `claude assistant` 无参数时能拿到候选 session 列表
+- `ccb assistant` 无参数时能拿到候选 session 列表
 
 **验证:**
 - [ ] 无参数调用能列出可用 sessions

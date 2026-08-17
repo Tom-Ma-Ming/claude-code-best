@@ -375,7 +375,7 @@ function ModeIndicator({
     !showSpinnerTree && hasBackgroundTasks && Object.values(tasks).some(t => t.type === 'in_process_teammate');
   const hasTeammatePills = hasInProcessTeammates || (!showSpinnerTree && isViewingTeammate);
 
-  // In remote mode (`claude assistant`, --teleport) the agent runs elsewhere;
+  // In remote mode (`ccb assistant`, --teleport) the agent runs elsewhere;
   // the local permission mode shown here doesn't reflect the agent's state.
   // Rendered before the tasks pill so a long pill label (e.g. ultraplan URL)
   // doesn't push the mode indicator off-screen.

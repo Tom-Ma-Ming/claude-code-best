@@ -34,6 +34,7 @@ import {
   type AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
   logEvent,
 } from 'src/services/analytics/index.js'
+import { CLI_NAME, cliBinaryName } from '../../constants/product.js'
 import { getMaxVersion, shouldSkipVersion } from '../autoUpdater.js'
 import { registerCleanup } from '../cleanupRegistry.js'
 import { getGlobalConfig, saveGlobalConfig } from '../config.js'
@@ -41,7 +42,7 @@ import { logForDebugging } from '../debug.js'
 import { getCurrentInstallationType } from '../doctorDiagnostic.js'
 import { env } from '../env.js'
 import { envDynamic } from '../envDynamic.js'
-import { isEnvTruthy } from '../envUtils.js'
+import { getClaudeConfigHomeDir, isEnvTruthy } from '../envUtils.js'
 import { errorMessage, getErrnoCode, isENOENT, toError } from '../errors.js'
 import { execFileNoThrowWithCwd } from '../execFileNoThrow.js'
 import { getShellType } from '../localInstaller.js'
@@ -109,7 +110,7 @@ export function getPlatform(): string {
 }
 
 export function getBinaryName(platform: string): string {
-  return platform.startsWith('win32') ? 'claude.exe' : 'claude'
+  return cliBinaryName(platform)
 }
 
 function getBaseDirectories() {
@@ -118,13 +119,13 @@ function getBaseDirectories() {
 
   return {
     // Data directories (permanent storage)
-    versions: join(getXDGDataHome(), 'claude', 'versions'),
+    versions: join(getXDGDataHome(), CLI_NAME, 'versions'),
 
     // Cache directories (can be deleted)
-    staging: join(getXDGCacheHome(), 'claude', 'staging'),
+    staging: join(getXDGCacheHome(), CLI_NAME, 'staging'),
 
     // State directories
-    locks: join(getXDGStateHome(), 'claude', 'locks'),
+    locks: join(getXDGStateHome(), CLI_NAME, 'locks'),
 
     // User bin
     executable: join(getUserBinDir(), executableName),
@@ -1555,9 +1556,9 @@ async function manualRemoveNpmPackage(
 
     if (getPlatform().startsWith('win32')) {
       // Windows - only remove executables, not the package directory
-      const binCmd = join(globalPrefix, 'claude.cmd')
-      const binPs1 = join(globalPrefix, 'claude.ps1')
-      const binExe = join(globalPrefix, 'claude')
+      const binCmd = join(globalPrefix, `${CLI_NAME}.cmd`)
+      const binPs1 = join(globalPrefix, `${CLI_NAME}.ps1`)
+      const binExe = join(globalPrefix, CLI_NAME)
 
       if (await tryRemove(binCmd, 'bin script')) {
         manuallyRemoved = true
@@ -1572,7 +1573,7 @@ async function manualRemoveNpmPackage(
       }
     } else {
       // Unix/Mac - only remove symlink, not the package directory
-      const binSymlink = join(globalPrefix, 'bin', 'claude')
+      const binSymlink = join(globalPrefix, 'bin', CLI_NAME)
 
       if (await tryRemove(binSymlink, 'bin symlink')) {
         manuallyRemoved = true
@@ -1685,8 +1686,8 @@ export async function cleanupNpmInstallations(): Promise<{
     }
   }
 
-  // Check for local installation at ~/.claude/local
-  const localInstallDir = join(homedir(), '.claude', 'local')
+  // Check for local installation at ~/.ccb/local
+  const localInstallDir = join(getClaudeConfigHomeDir(), 'local')
 
   try {
     await rm(localInstallDir, { recursive: true })

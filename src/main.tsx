@@ -29,7 +29,7 @@ import mapValues from 'lodash-es/mapValues.js';
 import pickBy from 'lodash-es/pickBy.js';
 import uniqBy from 'lodash-es/uniqBy.js';
 import { getOauthConfig } from './constants/oauth.js';
-import { getRemoteSessionUrl } from './constants/product.js';
+import { CLI_NAME, getRemoteSessionUrl } from './constants/product.js';
 import { getSystemContext, getUserContext } from './context.js';
 import { init, initializeTelemetryAfterTrust } from './entrypoints/init.js';
 import { addToHistory } from './history.js';
@@ -694,7 +694,7 @@ function initializeEntrypoint(isNonInteractive: boolean): void {
   process.env.CLAUDE_CODE_ENTRYPOINT = isNonInteractive ? 'sdk-cli' : 'cli';
 }
 
-// Set by early argv processing when `claude open <url>` is detected (interactive mode only)
+// Set by early argv processing when `ccb open <url>` is detected (interactive mode only)
 type PendingConnect = {
   url: string | undefined;
   authToken: string | undefined;
@@ -708,13 +708,13 @@ const _pendingConnect: PendingConnect | undefined = feature('DIRECT_CONNECT')
     }
   : undefined;
 
-// Set by early argv processing when `claude assistant [sessionId]` is detected
+// Set by early argv processing when `ccb assistant [sessionId]` is detected
 type PendingAssistantChat = { sessionId?: string; discover: boolean };
 const _pendingAssistantChat: PendingAssistantChat | undefined = feature('KAIROS')
   ? { sessionId: undefined, discover: false }
   : undefined;
 
-// `claude ssh <host> [dir]` — parsed from argv early (same pattern as
+// `ccb ssh <host> [dir]` — parsed from argv early (same pattern as
 // DIRECT_CONNECT above) so the main command path can pick it up and hand
 // the REPL an SSH-backed session instead of a local one.
 type PendingSSH = {
@@ -835,10 +835,10 @@ export async function main() {
     }
   }
 
-  // `claude assistant [sessionId]` — stash and strip so the main
+  // `ccb assistant [sessionId]` — stash and strip so the main
   // command handles it, giving the full interactive TUI. Position-0 only
   // (matching the ssh pattern below) — indexOf would false-positive on
-  // `claude -p "explain assistant"`. Root-flag-before-subcommand
+  // `ccb -p "explain assistant"`. Root-flag-before-subcommand
   // (e.g. `--debug assistant`) falls through to the stub, which
   // prints usage.
   if (feature('KAIROS') && _pendingAssistantChat) {
@@ -854,11 +854,11 @@ export async function main() {
         rawArgs.splice(0, 1); // drop 'assistant'
         process.argv = [process.argv[0]!, process.argv[1]!, ...rawArgs];
       }
-      // else: `claude assistant --help` → fall through to stub
+      // else: `ccb assistant --help` → fall through to stub
     }
   }
 
-  // `claude ssh <host> [dir]` — strip from argv so the main command handler
+  // `ccb ssh <host> [dir]` — strip from argv so the main command handler
   // runs (full interactive TUI), stash the host/dir for the REPL branch at
   // ~line 3720 to pick up. Headless (-p) mode not supported in v1: SSH
   // sessions need the local REPL to drive them (interrupt, permissions).
@@ -867,7 +867,7 @@ export async function main() {
     // SSH-specific flags can appear before the host positional (e.g.
     // `ssh --permission-mode auto host /tmp` — standard POSIX flags-before-
     // positionals). Pull them all out BEFORE checking whether a host was
-    // given, so `claude ssh --permission-mode auto host` and `claude ssh host
+    // given, so `ccb ssh --permission-mode auto host` and `ccb ssh host
     // --permission-mode auto` are equivalent. The host check below only needs
     // to guard against `-h`/`--help` (which commander should handle).
     if (rawCliArgs[0] === 'ssh') {
@@ -893,7 +893,7 @@ export async function main() {
       }
       // Forward session-resume + model flags to the remote CLI's initial spawn.
       // --continue/-c and --resume <uuid> operate on the REMOTE session history
-      // (which persists under the remote's ~/.claude/projects/<cwd>/).
+      // (which persists under the remote's ~/.ccb/projects/<cwd>/).
       // --model controls which model the remote uses.
       const extractFlag = (flag: string, opts: { hasValue?: boolean; as?: string } = {}) => {
         const i = rawCliArgs.indexOf(flag);
@@ -1011,7 +1011,7 @@ export async function main() {
     setQuestionPreviewFormat('markdown');
   }
 
-  // Tag sessions created via `claude remote-control` so the backend can identify them
+  // Tag sessions created via `ccb remote-control` so the backend can identify them
   if (process.env.CLAUDE_CODE_ENVIRONMENT_KIND === 'bridge') {
     setSessionSource('remote-control');
   }
@@ -1100,7 +1100,7 @@ async function run(): Promise<CommanderCommand> {
     // terminal shell integration may mirror the process name to the tab.
     // After init() so settings.json env can also gate this (gh-4765).
     if (!isEnvTruthy(process.env.CLAUDE_CODE_DISABLE_TERMINAL_TITLE)) {
-      process.title = 'claude';
+      process.title = CLI_NAME;
     }
 
     // Attach logging sinks so subcommand handlers can use logEvent/logError.
@@ -1148,7 +1148,7 @@ async function run(): Promise<CommanderCommand> {
   });
 
   program
-    .name('claude')
+    .name(CLI_NAME)
     .description(`Claude Code - starts an interactive session by default, use -p/--print for non-interactive output`)
     .argument('[prompt]', 'Your prompt', String)
     // Subcommands inherit helpOption via commander's copyInheritedSettings —
@@ -1414,7 +1414,7 @@ async function run(): Promise<CommanderCommand> {
     )
     .option('--setting-sources <sources>', 'Comma-separated list of setting sources to load (user, project, local).')
     // gh-33508: <paths...> (variadic) consumed everything until the next
-    // --flag. `claude --plugin-dir /path mcp add --transport http` swallowed
+    // --flag. `ccb --plugin-dir /path mcp add --transport http` swallowed
     // `mcp` and `add` as paths, then choked on --transport as an unknown
     // top-level option. Single-value + collect accumulator means each
     // --plugin-dir takes exactly one arg; repeat the flag for multiple dirs.
@@ -3071,9 +3071,9 @@ async function run(): Promise<CommanderCommand> {
 
       logManagedSettings();
 
-      // Register PID file for concurrent-session detection (~/.claude/sessions/)
+      // Register PID file for concurrent-session detection (~/.ccb/sessions/)
       // and fire multi-clauding telemetry. Lives here (not init.ts) so only the
-      // REPL path registers — not subcommands like `claude doctor`. Chained:
+      // REPL path registers — not subcommands like `ccb doctor`. Chained:
       // count must run after register's write completes or it misses our own file.
       void registerSession().then(registered => {
         if (!registered) return;
@@ -3735,7 +3735,7 @@ async function run(): Promise<CommanderCommand> {
           process.exit(1);
         }
       } else if (feature('DIRECT_CONNECT') && _pendingConnect?.url) {
-        // `claude connect <url>` — full interactive TUI connected to a remote server
+        // `ccb connect <url>` — full interactive TUI connected to a remote server
         let directConnectConfig;
         try {
           const session = await createDirectConnectSession({
@@ -3780,7 +3780,7 @@ async function run(): Promise<CommanderCommand> {
         );
         return;
       } else if (feature('SSH_REMOTE') && _pendingSSH?.host) {
-        // `claude ssh <host> [dir]` — probe remote, deploy binary if needed,
+        // `ccb ssh <host> [dir]` — probe remote, deploy binary if needed,
         // spawn ssh with unix-socket -R forward to a local auth proxy, hand
         // the REPL an SSHSession. Tools run remotely, UI renders locally.
         // `--local` skips probe/deploy/ssh and spawns the current binary
@@ -3862,7 +3862,7 @@ async function run(): Promise<CommanderCommand> {
         _pendingAssistantChat &&
         (_pendingAssistantChat.sessionId || _pendingAssistantChat.discover)
       ) {
-        // `claude assistant [sessionId]` — REPL as a pure viewer client
+        // `ccb assistant [sessionId]` — REPL as a pure viewer client
         // of a remote assistant session. The agentic loop runs remotely; this
         // process streams live events and POSTs messages. History is lazy-
         // loaded by useAssistantHistory on scroll-up (no blocking fetch here).
@@ -3899,7 +3899,7 @@ async function run(): Promise<CommanderCommand> {
             // establish a bridge session before discovery will find it.
             return await exitWithMessage(
               root,
-              `Assistant installed in ${installedDir}. The daemon is starting up — run \`claude assistant\` again in a few seconds to connect.`,
+              `Assistant installed in ${installedDir}. The daemon is starting up — run \`ccb assistant\` again in a few seconds to connect.`,
               {
                 exitCode: 0,
                 beforeExit: () => gracefulShutdown(0),
@@ -4776,11 +4776,11 @@ async function run(): Promise<CommanderCommand> {
       );
   }
 
-  // `claude ssh <host> [dir]` — registered here only so --help shows it.
+  // `ccb ssh <host> [dir]` — registered here only so --help shows it.
   // The actual interactive flow is handled by early argv rewriting in main()
   // (parallels the DIRECT_CONNECT/cc:// pattern above). If commander reaches
   // this action it means the argv rewrite didn't fire (e.g. user ran
-  // `claude ssh` with no host) — just print usage.
+  // `ccb ssh` with no host) — just print usage.
   if (feature('SSH_REMOTE')) {
     program
       .command('ssh <host> [dir]')
@@ -4807,7 +4807,7 @@ async function run(): Promise<CommanderCommand> {
         process.stderr.write(
           'Usage: claude ssh <user@host | ssh-config-alias> [dir]\n\n' +
             "Runs Claude Code on a remote Linux host. You don't need to install\n" +
-            'anything on the remote or run `claude auth login` there — the binary is\n' +
+            'anything on the remote or run `ccb auth login` there — the binary is\n' +
             'deployed over SSH and API auth tunnels back through your local machine.\n',
         );
         process.exit(1);
@@ -5022,7 +5022,7 @@ async function run(): Promise<CommanderCommand> {
     .alias('rm')
     .description('Uninstall an installed plugin')
     .option('-s, --scope <scope>', 'Uninstall from scope: user, project, or local', 'user')
-    .option('--keep-data', "Preserve the plugin's persistent data directory (~/.claude/plugins/data/{id}/)")
+    .option('--keep-data', "Preserve the plugin's persistent data directory (~/.ccb/plugins/data/{id}/)")
     .addOption(coworkOption())
     .action(
       async (

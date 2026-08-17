@@ -3,10 +3,10 @@
  *
  * Passphrase priority:
  *   1. CLAUDE_LOCAL_VAULT_PASSPHRASE env var
- *   2. ~/.claude/.local-vault-passphrase (mode 600 on POSIX)
+ *   2. ~/.ccb/.local-vault-passphrase (mode 600 on POSIX)
  *   3. Auto-generate + write to file (warns user to backup)
  *
- * Fallback file: ~/.claude/local-vault.enc.json (gitignored)
+ * Fallback file: ~/.ccb/local-vault.enc.json (gitignored)
  *
  * Security invariants:
  *   - AES-256-GCM with per-record random IV; scryptSync KDF for passphrase
@@ -40,6 +40,7 @@ import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { logError } from '../../utils/log.js'
 import { KeychainUnavailableError, tryKeychain } from './keychain.js'
+import { getClaudeConfigHomeDir } from 'src/utils/envUtils.js'
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -62,8 +63,8 @@ export class LocalVaultDecryptionError extends Error {
   constructor(reason: string) {
     super(
       `LocalVault decryption failed: ${reason}. ` +
-        'Restore from your backup of ~/.claude/.local-vault-passphrase, ' +
-        'or delete ~/.claude/local-vault.enc.json to reset (DESTROYS ALL SECRETS).',
+        'Restore from your backup of ~/.ccb/.local-vault-passphrase, ' +
+        'or delete ~/.ccb/local-vault.enc.json to reset (DESTROYS ALL SECRETS).',
     )
     this.name = 'LocalVaultDecryptionError'
   }
@@ -83,7 +84,7 @@ export class LocalVaultValueTooLargeError extends Error {
 // ── Path helpers ──────────────────────────────────────────────────────────────
 
 function getClaudeDir(): string {
-  return process.env['CLAUDE_CONFIG_DIR'] ?? join(homedir(), '.claude')
+  return getClaudeConfigHomeDir()
 }
 
 function getVaultFilePath(): string {

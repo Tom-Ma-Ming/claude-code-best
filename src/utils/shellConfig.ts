@@ -6,10 +6,11 @@
 import { open, readFile, stat } from 'fs/promises'
 import { homedir as osHomedir } from 'os'
 import { join } from 'path'
+import { CLI_NAME } from '../constants/product.js'
 import { isFsInaccessible } from './errors.js'
 import { getLocalClaudePath } from './localInstaller.js'
 
-export const CLAUDE_ALIAS_REGEX = /^\s*alias\s+claude\s*=/
+export const CLAUDE_ALIAS_REGEX = new RegExp(`^\\s*alias\\s+${CLI_NAME}\\s*=`)
 
 type EnvLike = Record<string, string | undefined>
 
@@ -38,7 +39,7 @@ export function getShellConfigPaths(
 
 /**
  * Filter out installer-created claude aliases from an array of lines
- * Only removes aliases pointing to $HOME/.claude/local/claude
+ * Only removes aliases pointing to the config home's local/<cli> wrapper
  * Preserves custom user aliases that point to other locations
  * Returns the filtered lines and whether our default installer alias was found
  */
@@ -52,10 +53,14 @@ export function filterClaudeAliases(lines: string[]): {
     if (CLAUDE_ALIAS_REGEX.test(line)) {
       // Extract the alias target - handle spaces, quotes, and various formats
       // First try with quotes
-      let match = line.match(/alias\s+claude\s*=\s*["']([^"']+)["']/)
+      let match = line.match(
+        new RegExp(`alias\\s+${CLI_NAME}\\s*=\\s*["']([^"']+)["']`),
+      )
       if (!match) {
         // Try without quotes (capturing until end of line or comment)
-        match = line.match(/alias\s+claude\s*=\s*([^#\n]+)/)
+        match = line.match(
+          new RegExp(`alias\\s+${CLI_NAME}\\s*=\\s*([^#\\n]+)`),
+        )
       }
 
       if (match && match[1]) {
@@ -123,7 +128,9 @@ export async function findClaudeAlias(
     for (const line of lines) {
       if (CLAUDE_ALIAS_REGEX.test(line)) {
         // Extract the alias target
-        const match = line.match(/alias\s+claude=["']?([^"'\s]+)/)
+        const match = line.match(
+          new RegExp(`alias\\s+${CLI_NAME}=["']?([^"'\\s]+)`),
+        )
         if (match && match[1]) {
           return match[1]
         }

@@ -175,7 +175,7 @@ async function main(): Promise<void> {
     return;
   }
 
-  // Fast-path for `claude remote-control` (also accepts legacy `claude remote` / `claude sync` / `claude bridge`):
+  // Fast-path for `ccb remote-control` (also accepts legacy `ccb remote` / `ccb sync` / `ccb bridge`):
   // serve local machine as bridge environment.
   // feature() must stay inline for build-time dead code elimination;
   // isBridgeEnabled() checks the runtime GrowthBook gate.
@@ -225,7 +225,7 @@ async function main(): Promise<void> {
     return;
   }
 
-  // Fast-path for `claude daemon [subcommand]`: unified daemon + session management.
+  // Fast-path for `ccb daemon [subcommand]`: unified daemon + session management.
   // Handles both supervisor (start/stop) and background session (bg/attach/logs/kill)
   // subcommands under one namespace.
   if ((feature('DAEMON') || feature('BG_SESSIONS')) && args[0] === 'daemon') {
@@ -241,7 +241,7 @@ async function main(): Promise<void> {
     return;
   }
 
-  // Fast-path for `claude autonomy ...`: state inspection/management commands
+  // Fast-path for `ccb autonomy ...`: state inspection/management commands
   // do not need the full interactive CLI bootstrap. The full Commander path
   // imports main.tsx and runs root preAction initialization before the autonomy
   // action; under coverage/CI that leaves unrelated handles around simple
@@ -293,7 +293,7 @@ async function main(): Promise<void> {
     return;
   }
 
-  // Fast-path for `claude job <subcommand>`: template jobs.
+  // Fast-path for `ccb job <subcommand>`: template jobs.
   if (feature('TEMPLATES') && args[0] === 'job') {
     profileCheckpoint('cli_templates_path');
     const { templatesMain } = await import('../cli/handlers/templateJobs.js');

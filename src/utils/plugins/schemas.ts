@@ -881,7 +881,7 @@ const PluginManifestSettingsSchema = lazySchema(() =>
  * still fail, since a typo there is more likely to be an author mistake
  * than a vendor extension. Type mismatches and other validation errors
  * still fail at all levels. For developer feedback on unknown top-level
- * fields, use `claude plugin validate`.
+ * fields, use `ccb plugin validate`.
  */
 export const PluginManifestSchema = lazySchema(() =>
   z.object({
@@ -1498,7 +1498,7 @@ export const InstalledPluginsFileSchemaV1 = lazySchema(() =>
  *
  * Plugins can be installed at different scopes:
  * - managed: Enterprise/system-wide (read-only, platform-specific paths)
- * - user: User's global settings (~/.claude/settings.json)
+ * - user: User's global settings (~/.ccb/settings.json)
  * - project: Shared project settings ($project/.claude/settings.json)
  * - local: Personal project overrides ($project/.claude/settings.local.json)
  *

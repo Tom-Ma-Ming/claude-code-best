@@ -12,15 +12,15 @@
 
 | 命令 | 注册位置 | 入口 |
 |------|---------|------|
-| `claude daemon start/status/stop` | `cli.tsx` 快速路径 L203 | `daemon/main.ts` |
-| `claude ps` | `cli.tsx` 快速路径 L220 | `cli/bg.ts` |
-| `claude logs <x>` | `cli.tsx` 快速路径 L232 | `cli/bg.ts` |
-| `claude attach <x>` | `cli.tsx` 快速路径 L236 | `cli/bg.ts` |
-| `claude kill <x>` | `cli.tsx` 快速路径 L238 | `cli/bg.ts` |
-| `claude --bg` | `cli.tsx` 快速路径 L244 | `cli/bg.ts` |
-| `claude new/list/reply` | `cli.tsx` 快速路径 L250 | `cli/handlers/templateJobs.ts` |
-| `claude rollback` | `main.tsx` Commander.js L6525 | `cli/rollback.ts` |
-| `claude up` | `main.tsx` Commander.js L6511 | `cli/up.ts` |
+| `ccb daemon start/status/stop` | `cli.tsx` 快速路径 L203 | `daemon/main.ts` |
+| `ccb ps` | `cli.tsx` 快速路径 L220 | `cli/bg.ts` |
+| `ccb logs <x>` | `cli.tsx` 快速路径 L232 | `cli/bg.ts` |
+| `ccb attach <x>` | `cli.tsx` 快速路径 L236 | `cli/bg.ts` |
+| `ccb kill <x>` | `cli.tsx` 快速路径 L238 | `cli/bg.ts` |
+| `ccb --bg` | `cli.tsx` 快速路径 L244 | `cli/bg.ts` |
+| `ccb new/list/reply` | `cli.tsx` 快速路径 L250 | `cli/handlers/templateJobs.ts` |
+| `ccb rollback` | `main.tsx` Commander.js L6525 | `cli/rollback.ts` |
+| `ccb up` | `main.tsx` Commander.js L6511 | `cli/up.ts` |
 
 **问题**:
 - `ps/logs/attach/kill` 与 `daemon` 逻辑上都是后台进程管理，但互不关联
@@ -37,7 +37,7 @@
 ### 1.3 无 REPL 入口
 
 对比 `/mcp` 的双注册模式：
-- **CLI**: `claude mcp serve/add/remove/list` (Commander.js, `main.tsx:5760`)
+- **CLI**: `ccb mcp serve/add/remove/list` (Commander.js, `main.tsx:5760`)
 - **REPL**: `/mcp enable/disable/reconnect` (slash command, `commands/mcp/index.ts`)
 
 `daemon`/`bg`/`job` 系列只有 CLI 快速路径，REPL 中完全不可用。
@@ -46,7 +46,7 @@
 
 1. **层级化命令结构**: 参照 `/mcp` 模式，将后台管理收归 `/daemon`，模板任务收归 `/job`
 2. **跨平台后台会话**: Windows / macOS / Linux 都能启动、附着、终止后台会话
-3. **双注册**: CLI (`claude daemon ...`) + REPL (`/daemon ...`) 同时可用
+3. **双注册**: CLI (`ccb daemon ...`) + REPL (`/daemon ...`) 同时可用
 4. **向后兼容**: 旧命令保留但输出 deprecation 提示
 
 ## 三、命令结构设计
@@ -56,7 +56,7 @@
 合并 daemon supervisor + bg sessions 为统一命名空间：
 
 ```
-claude daemon <subcommand>     ← CLI 入口 (cli.tsx 快速路径)
+ccb daemon <subcommand>     ← CLI 入口 (cli.tsx 快速路径)
 /daemon <subcommand>           ← REPL 入口 (slash command, local-jsx)
 
 子命令:
@@ -110,7 +110,7 @@ const daemon = {
 ### 3.2 `/job` — 模板任务管理
 
 ```
-claude job <subcommand>        ← CLI 入口
+ccb job <subcommand>        ← CLI 入口
 /job <subcommand>              ← REPL 入口
 
 子命令:
@@ -124,8 +124,8 @@ claude job <subcommand>        ← CLI 入口
 ### 3.3 独立命令 (不变)
 
 ```
-claude up                      保持顶级 (简短的 bootstrap 命令)
-claude rollback [target]       保持顶级 (低频运维命令)
+ccb up                      保持顶级 (简短的 bootstrap 命令)
+ccb rollback [target]       保持顶级 (低频运维命令)
 ```
 
 ## 四、跨平台后台引擎
@@ -301,11 +301,11 @@ Task 016 (兼容)     ← 依赖 Task 014 + 015
 
 ### D1: 为什么 daemon + bg sessions 合为一个命名空间？
 
-用户视角：都是"后台运行的东西"。分开会导致 `claude daemon status` 看 supervisor + `claude ps` 看会话，割裂感强。合并后 `claude daemon status` 一次性展示 supervisor 状态 + 所有会话列表。
+用户视角：都是"后台运行的东西"。分开会导致 `ccb daemon status` 看 supervisor + `ccb ps` 看会话，割裂感强。合并后 `ccb daemon status` 一次性展示 supervisor 状态 + 所有会话列表。
 
 ### D2: 为什么 rollback/up 不收入 daemon？
 
-它们本质是**版本管理/环境初始化**，不是后台进程管理。`claude up` 是同步阻塞的 setup 脚本，不涉及 daemon 或后台会话。保持顶级更直观。
+它们本质是**版本管理/环境初始化**，不是后台进程管理。`ccb up` 是同步阻塞的 setup 脚本，不涉及 daemon 或后台会话。保持顶级更直观。
 
 ### D3: 为什么 DetachedEngine 的 attach 用 tail 而不是 IPC？
 
