@@ -155,6 +155,60 @@ ccb dingtalk access revoke <staffId> # 撤销
 
 建应用不麻烦——本文第一步到第四步，一个应用五分钟。
 
+### 不用每次重新登录：用 profile
+
+多个应用意味着多套凭据。**不需要每次切项目重新登录**——每套凭据存成一个 profile：
+
+```bash
+ccb dingtalk login --profile projectA    # 输入 A 应用的 AppKey/AppSecret
+ccb dingtalk login --profile projectB    # 输入 B 应用的
+ccb dingtalk profiles                    # 看有哪些
+```
+
+每个 profile 有**独立的目录**，凭据、配对白名单、待配对码互不干扰：
+
+```
+~/.ccb/channels/dingtalk/                    默认 profile
+~/.ccb/channels/dingtalk/profiles/projectA/  ← account.json + access.json
+~/.ccb/channels/dingtalk/profiles/projectB/
+```
+
+启动会话时用环境变量选择：
+
+```bash
+cd ~/work/projectA
+DINGTALK_PROFILE=projectA ccb --channels plugin:dingtalk@builtin
+```
+
+环境变量会传给 `ccb dingtalk serve` 子进程，MCP server 据此读对应凭据。
+
+每个项目配一次就一劳永逸（用 direnv 的话写进 `.envrc`）：
+
+```bash
+# ~/work/projectA/.envrc
+export DINGTALK_PROFILE=projectA
+```
+
+或者直接做成别名：
+
+```bash
+alias ccb-a='DINGTALK_PROFILE=projectA ccb --channels plugin:dingtalk@builtin'
+alias ccb-b='DINGTALK_PROFILE=projectB ccb --channels plugin:dingtalk@builtin'
+```
+
+所有子命令都接受 `--profile <name>`：
+
+```bash
+ccb dingtalk status --profile projectA
+ccb dingtalk access pair 123456 --profile projectA
+ccb dingtalk access list --profile projectA
+ccb dingtalk login clear --profile projectA
+```
+
+不带 `--profile` 也不设 `DINGTALK_PROFILE` 时用默认 profile（就是 `~/.ccb/channels/dingtalk/`），所以老配置继续可用，不用迁移。
+
+> `DINGTALK_STATE_DIR` 仍然优先于 profile，容器/CI 里直接指定目录的用法不受影响。
+
 ### 为什么不能一个 AppKey 配多个实例
 
 直觉上似乎可以：一个机器人拉进 N 个群，每个 ccb 实例只处理自己那个群。**这行不通。**

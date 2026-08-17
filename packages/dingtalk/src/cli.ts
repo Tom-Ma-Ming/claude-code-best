@@ -1,8 +1,11 @@
 import { createInterface } from 'node:readline/promises'
 import {
+  activeProfile,
+  assertValidProfileName,
   clearAccount,
   DEFAULT_BASE_URL,
   getStateDir,
+  listProfiles,
   loadAccount,
   saveAccount,
 } from './accounts.js'
@@ -23,8 +26,17 @@ function printUsage(): void {
       '  ccb dingtalk login              Enter AppKey / AppSecret / RobotCode',
       '  ccb dingtalk login clear        Forget stored credentials',
       '  ccb dingtalk status             Show what is configured',
+      '  ccb dingtalk profiles           List stored credential profiles',
       '  ccb dingtalk access pair <code> Approve a pairing code',
       '  ccb dingtalk access list        List paired sender IDs',
+      '  ccb dingtalk access revoke <id> Remove a paired sender',
+      '',
+      'One DingTalk app per project — keep each app in its own profile:',
+      '  ccb dingtalk login --profile projectA      store credentials',
+      '  DINGTALK_PROFILE=projectA ccb --channels plugin:dingtalk@builtin',
+      '',
+      'Every subcommand accepts --profile <name>; DINGTALK_PROFILE is the',
+      'runtime default and is what the serve subprocess reads.',
       '',
       'Credentials can also come from the environment:',
       '  DINGTALK_APP_KEY, DINGTALK_APP_SECRET, DINGTALK_ROBOT_CODE',
@@ -78,23 +90,29 @@ export async function promptAllOn(
   return answers
 }
 
-async function runLogin(clear = false): Promise<void> {
+function profileLabel(profile?: string): string {
+  return profile ? ` (profile: ${profile})` : ''
+}
+
+async function runLogin(clear = false, profile?: string): Promise<void> {
   if (clear) {
-    clearAccount()
-    process.stdout.write('DingTalk credentials cleared.\n')
+    clearAccount(profile)
+    process.stdout.write(
+      `DingTalk credentials cleared${profileLabel(profile)}.\n`,
+    )
     return
   }
 
-  const existing = loadAccount()
+  const existing = loadAccount(profile)
   if (existing) {
     process.stdout.write(
       [
-        'Already configured:',
+        `Already configured${profileLabel(profile)}:`,
         `  AppKey:    ${existing.appKey}`,
         `  RobotCode: ${existing.robotCode}`,
         `  Saved:     ${existing.savedAt}`,
         '',
-        'Run `ccb dingtalk login clear` to reset.',
+        `Run \`ccb dingtalk login clear${profile ? ` --profile ${profile}` : ''}\` to reset.`,
       ].join('\n') + '\n',
     )
     return
@@ -102,7 +120,7 @@ async function runLogin(clear = false): Promise<void> {
 
   process.stdout.write(
     [
-      'Connect a DingTalk 企业内部应用 (Stream mode).',
+      `Connect a DingTalk 企业内部应用 (Stream mode)${profileLabel(profile)}.`,
       '',
       'From https://open-dev.dingtalk.com → your app:',
       '  · 凭证与基础信息  → AppKey / AppSecret',
@@ -151,39 +169,77 @@ async function runLogin(clear = false): Promise<void> {
     process.exit(1)
   }
 
-  saveAccount({
-    appKey,
-    appSecret,
-    robotCode,
-    baseUrl: DEFAULT_BASE_URL,
-    savedAt: new Date().toISOString(),
-  })
+  saveAccount(
+    {
+      appKey,
+      appSecret,
+      robotCode,
+      baseUrl: DEFAULT_BASE_URL,
+      savedAt: new Date().toISOString(),
+    },
+    profile,
+  )
+
+  const launch = profile
+    ? `DINGTALK_PROFILE=${profile} ccb --channels plugin:dingtalk@builtin`
+    : 'ccb --channels plugin:dingtalk@builtin'
+  const pairCmd = profile
+    ? `ccb dingtalk access pair <code> --profile ${profile}`
+    : 'ccb dingtalk access pair <code>'
 
   process.stdout.write(
     [
       '',
-      'Connected successfully.',
-      `  Stored in: ${getStateDir()}/account.json (mode 600)`,
+      `Connected successfully${profileLabel(profile)}.`,
+      `  Stored in: ${getStateDir(profile)}/account.json (mode 600)`,
       '',
       'Start a session with:',
-      '  ccb --channels plugin:dingtalk@builtin',
+      `  ${launch}`,
       '',
       'Then message the robot in DingTalk. The first message returns a pairing',
-      'code — approve it with `ccb dingtalk access pair <code>`.',
+      `code — approve it with \`${pairCmd}\`.`,
     ].join('\n') + '\n',
   )
+}
+
+function runProfiles(): void {
+  const names = listProfiles()
+  const active = activeProfile()
+  const hasDefault = loadAccount() !== null && !active
+
+  if (names.length === 0 && !hasDefault) {
+    process.stdout.write(
+      'No profiles stored. Create one with `ccb dingtalk login --profile <name>`.\n',
+    )
+    return
+  }
+
+  const lines = ['Stored profiles:']
+  if (loadAccount(undefined) !== null) {
+    lines.push(`  (default)${active ? '' : '   ← active'}`)
+  }
+  for (const name of names) {
+    lines.push(`  ${name}${name === active ? '   ← active' : ''}`)
+  }
+  lines.push('')
+  lines.push('Select one at runtime with DINGTALK_PROFILE=<name>.')
+  process.stdout.write(lines.join('\n') + '\n')
 }
 
 function runStatus(): void {
   const account = loadAccount()
   if (!account) {
-    process.stdout.write('Not configured. Run `ccb dingtalk login`.\n')
+    const p = activeProfile()
+    process.stdout.write(
+      `Not configured${profileLabel(p)}. Run \`ccb dingtalk login${p ? ` --profile ${p}` : ''}\`.\n`,
+    )
     return
   }
   const access = loadAccessConfig()
   process.stdout.write(
     [
       'DingTalk channel:',
+      `  Profile:   ${activeProfile() ?? '(default)'}`,
       `  AppKey:    ${account.appKey}`,
       `  RobotCode: ${account.robotCode}`,
       `  Source:    ${account.savedAt === 'env' ? 'environment variables' : account.savedAt}`,
@@ -236,12 +292,55 @@ function runAccess(args: string[]): void {
   process.exit(1)
 }
 
+/**
+ * Strip `--profile <name>` / `--profile=<name>` from argv and publish it as
+ * DINGTALK_PROFILE.
+ *
+ * Setting the env var rather than threading a parameter keeps one source of
+ * truth: getStateDir(), loadAccessConfig() and the serve subprocess all read
+ * the same value, so a flag and an exported var can never disagree.
+ */
+function extractProfileFlag(args: string[]): string[] {
+  const rest: string[] = []
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i]!
+    if (arg === '--profile') {
+      const name = args[++i]
+      if (!name) {
+        process.stderr.write('--profile requires a name.\n')
+        process.exit(1)
+      }
+      assertValidProfileName(name)
+      process.env.DINGTALK_PROFILE = name
+      continue
+    }
+    if (arg.startsWith('--profile=')) {
+      const name = arg.slice('--profile='.length)
+      assertValidProfileName(name)
+      process.env.DINGTALK_PROFILE = name
+      continue
+    }
+    rest.push(arg)
+  }
+  return rest
+}
+
 export async function handleDingtalkCli(
   args: string[],
   serverDeps?: DingtalkServerDeps,
   version?: string,
 ): Promise<void> {
-  const [subcommand, ...rest] = args
+  let cleaned: string[]
+  try {
+    cleaned = extractProfileFlag(args)
+  } catch (error) {
+    process.stderr.write(
+      `${error instanceof Error ? error.message : String(error)}\n`,
+    )
+    process.exit(1)
+  }
+
+  const [subcommand, ...rest] = cleaned
 
   switch (subcommand) {
     case 'serve':
@@ -254,10 +353,13 @@ export async function handleDingtalkCli(
       await runDingtalkMcpServer(version ?? '0.0.0', serverDeps)
       return
     case 'login':
-      await runLogin(rest[0] === 'clear')
+      await runLogin(rest[0] === 'clear', activeProfile())
       return
     case 'status':
       runStatus()
+      return
+    case 'profiles':
+      runProfiles()
       return
     case 'access':
       runAccess(rest)

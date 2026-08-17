@@ -2,6 +2,7 @@ import {
   chmodSync,
   existsSync,
   mkdirSync,
+  readdirSync,
   readFileSync,
   unlinkSync,
   writeFileSync,
@@ -24,18 +25,79 @@ export interface AccountData {
   savedAt: string
 }
 
-export function getStateDir(): string {
-  const dir =
-    process.env.DINGTALK_STATE_DIR ||
-    join(homedir(), '.ccb', 'channels', 'dingtalk')
+/** Root holding the default profile and the `profiles/` subtree. */
+function channelRoot(): string {
+  return join(homedir(), '.ccb', 'channels', 'dingtalk')
+}
+
+/** Profile names become path segments — keep them boring. */
+const PROFILE_NAME_RE = /^[a-zA-Z0-9][a-zA-Z0-9._-]*$/
+
+export function assertValidProfileName(name: string): void {
+  if (!PROFILE_NAME_RE.test(name)) {
+    throw new Error(
+      `Invalid profile name "${name}". Use letters, digits, dot, dash or underscore, starting with a letter or digit.`,
+    )
+  }
+}
+
+/**
+ * Which credential set to use.
+ *
+ * One DingTalk app per project means several credential sets on one machine
+ * (see docs/features/dingtalk.md). A profile keeps each app's account,
+ * allowlist and pending pairings in their own directory, so switching projects
+ * is an env var rather than a re-login.
+ *
+ * `DINGTALK_PROFILE` is read at runtime and propagates to the `ccb dingtalk
+ * serve` subprocess, which is how the MCP server picks the right credentials.
+ */
+export function activeProfile(): string | undefined {
+  const name = process.env.DINGTALK_PROFILE?.trim()
+  if (!name) return undefined
+  assertValidProfileName(name)
+  return name
+}
+
+/**
+ * State directory for the given (or active) profile.
+ *
+ * `DINGTALK_STATE_DIR` still wins outright — it is the container/CI escape
+ * hatch and pointing it somewhere explicit should not be second-guessed.
+ * The unnamed default profile stays at the channel root so existing installs
+ * keep working untouched.
+ */
+export function getStateDir(profile?: string): string {
+  const explicit = process.env.DINGTALK_STATE_DIR
+  const name = profile ?? activeProfile()
+  const dir = explicit
+    ? explicit
+    : name
+      ? join(channelRoot(), 'profiles', name)
+      : channelRoot()
   if (!existsSync(dir)) {
     mkdirSync(dir, { recursive: true })
   }
   return dir
 }
 
-function accountPath(): string {
-  return join(getStateDir(), 'account.json')
+/** Profile names that have credentials stored, sorted. */
+export function listProfiles(): string[] {
+  const dir = join(channelRoot(), 'profiles')
+  if (!existsSync(dir)) return []
+  try {
+    return readdirSync(dir, { withFileTypes: true })
+      .filter(e => e.isDirectory())
+      .map(e => e.name)
+      .filter(name => existsSync(join(dir, name, 'account.json')))
+      .sort()
+  } catch {
+    return []
+  }
+}
+
+function accountPath(profile?: string): string {
+  return join(getStateDir(profile), 'account.json')
 }
 
 /**
@@ -43,7 +105,7 @@ function accountPath(): string {
  * inject them without a writable home. Env wins — it is the more explicit
  * source and is how CI/containers are expected to configure the channel.
  */
-export function loadAccount(): AccountData | null {
+export function loadAccount(profile?: string): AccountData | null {
   const envKey = process.env.DINGTALK_APP_KEY
   const envSecret = process.env.DINGTALK_APP_SECRET
   if (envKey && envSecret) {
@@ -56,7 +118,7 @@ export function loadAccount(): AccountData | null {
     }
   }
 
-  const path = accountPath()
+  const path = accountPath(profile)
   if (!existsSync(path)) return null
   try {
     const parsed = JSON.parse(
@@ -77,15 +139,15 @@ export function loadAccount(): AccountData | null {
   }
 }
 
-export function saveAccount(data: AccountData): void {
-  const path = accountPath()
+export function saveAccount(data: AccountData, profile?: string): void {
+  const path = accountPath(profile)
   writeFileSync(path, JSON.stringify(data, null, 2), 'utf-8')
   // Contains appSecret — keep it off other users' eyes on shared machines.
   chmodSync(path, 0o600)
 }
 
-export function clearAccount(): void {
-  const path = accountPath()
+export function clearAccount(profile?: string): void {
+  const path = accountPath(profile)
   if (existsSync(path)) {
     unlinkSync(path)
   }
