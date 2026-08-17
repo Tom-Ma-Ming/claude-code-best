@@ -128,6 +128,34 @@ async function main(): Promise<void> {
     return;
   }
 
+  if (args[0] === 'dingtalk') {
+    profileCheckpoint('cli_dingtalk_path');
+    const { handleDingtalkCli } = await import('@claude-code-best/dingtalk');
+    const { enableConfigs } = await import('../utils/config.js');
+    const { initializeAnalyticsSink } = await import('../services/analytics/sink.js');
+    const { shutdownDatadog } = await import('../services/analytics/datadog.js');
+    const { shutdown1PEventLogging } = await import('../services/analytics/firstPartyEventLogger.js');
+    const { logForDebugging } = await import('../utils/debug.js');
+    const { ChannelPermissionRequestNotificationSchema } = await import('../services/mcp/channelNotification.js');
+    await handleDingtalkCli(
+      args.slice(1),
+      {
+        enableConfigs,
+        initializeAnalyticsSink,
+        shutdownDatadog,
+        shutdown1PEventLogging,
+        logForDebugging,
+        registerPermissionHandler(server, handler) {
+          server.setNotificationHandler(ChannelPermissionRequestNotificationSchema(), async notification =>
+            handler(notification.params),
+          );
+        },
+      },
+      MACRO.VERSION,
+    );
+    return;
+  }
+
   if (args[0] === 'weixin') {
     profileCheckpoint('cli_weixin_path');
     const { handleWeixinCli } = await import('@claude-code-best/weixin');

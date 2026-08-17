@@ -22,6 +22,10 @@ ccb --channels plugin:feishu@claude-code-feishu-channel
 ccb weixin login
 ccb --channels plugin:weixin@builtin
 
+# 启用内置钉钉 channel（配置教程见 docs/features/dingtalk.md）
+ccb dingtalk login
+ccb --channels plugin:dingtalk@builtin
+
 # 启用频道监听（server 格式）
 ccb --channels server:my-slack-bridge
 
@@ -41,6 +45,7 @@ ccb --dangerously-load-development-channels server:my-custom-channel
 | **iMessage** | macOS 原生消息 | `/plugin install imessage@claude-plugins-official` |
 | **飞书 (Feishu/Lark)** | 双向消息、群组聊天、文件附件 | `/plugin install feishu@claude-code-feishu-channel` |
 | **微信 (WeChat)** | 内置 channel，支持扫码登录、双向消息、附件透传 | `ccb weixin login` + `ccb --channels plugin:weixin@builtin` |
+| **钉钉 (DingTalk)** | 内置 channel，Stream 模式免公网，支持双向消息、群聊 @、远程审批、附件收发 | `ccb dingtalk login` + `ccb --channels plugin:dingtalk@builtin`（[配置教程](./dingtalk.md)） |
 
 ## 微信内置 Channel
 
