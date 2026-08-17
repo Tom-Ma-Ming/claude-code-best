@@ -92,8 +92,20 @@ export function createDingtalkMcpServer(version: string): Server {
         },
         tools: {},
       },
-      instructions:
-        'Messages from DingTalk arrive as <channel source="plugin:dingtalk:dingtalk" chat_id="..." sender_id="...">. Reply using the reply tool with the chat_id from the channel tag. Use absolute paths for file attachments.',
+      instructions: [
+        'Messages from DingTalk arrive as <channel source="plugin:dingtalk:dingtalk" chat_id="..." sender_id="..." conversation_type="single|group" conversation_title="...">.',
+        '',
+        'Each distinct chat_id is a SEPARATE conversation with a different audience:',
+        '  · conversation_type="single" is a private 1:1 chat with one person.',
+        '  · conversation_type="group" is a group chat; conversation_title names it.',
+        '',
+        'Always reply with the reply tool using the chat_id of the message you are',
+        "answering. Never send one conversation's reply to another chat_id, and do",
+        'not repeat what was said in one conversation into another — participants',
+        'cannot see each other and may not be entitled to that content.',
+        '',
+        'Use absolute paths for file attachments.',
+      ].join('\n'),
     },
   )
 
@@ -300,6 +312,16 @@ export async function runDingtalkMcpServer(
           chat_id: msg.chatId,
           sender_id: msg.senderId,
           message_id: msg.messageId,
+          // Without these the model sees two opaque chat_ids and cannot tell a
+          // private chat from a group, which is how replies end up in the
+          // wrong conversation.
+          conversation_type:
+            msg.conversationType === ConversationType.GROUP
+              ? 'group'
+              : 'single',
+          ...(msg.conversationTitle && {
+            conversation_title: msg.conversationTitle,
+          }),
           ...(msg.senderNick && { sender_name: msg.senderNick }),
           ...(msg.attachmentPath && { attachment_path: msg.attachmentPath }),
           ...(msg.attachmentType && { attachment_type: msg.attachmentType }),
