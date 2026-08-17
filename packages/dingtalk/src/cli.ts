@@ -35,13 +35,47 @@ function printUsage(): void {
   )
 }
 
-async function prompt(question: string): Promise<string> {
-  const rl = createInterface({ input: process.stdin, output: process.stdout })
+/**
+ * Ask a series of questions on ONE readline interface.
+ *
+ * A fresh interface per question looks tidier but breaks on piped stdin: the
+ * first interface buffers everything available, so later ones read from an
+ * already-drained stream and hang forever.
+ *
+ * `rl.question` also never settles once stdin closes, so an EOF mid-sequence
+ * would hang rather than fail — race each question against the interface's
+ * own close event and surface it as an error.
+ */
+async function promptAll(questions: readonly string[]): Promise<string[]> {
+  return promptAllOn(questions, process.stdin, process.stdout)
+}
+
+/** Stream-injectable core of {@link promptAll}, shared with its tests. */
+export async function promptAllOn(
+  questions: readonly string[],
+  input: NodeJS.ReadableStream,
+  output: NodeJS.WritableStream,
+): Promise<string[]> {
+  const rl = createInterface({ input, output })
+  // Pull lines through the async iterator rather than rl.question(): the
+  // iterator reports EOF as `done` instead of leaving a promise unsettled,
+  // and it behaves identically for a TTY and a pipe.
+  const lines = rl[Symbol.asyncIterator]()
+
+  const answers: string[] = []
   try {
-    return (await rl.question(question)).trim()
+    for (const question of questions) {
+      output.write(question)
+      const next = await lines.next()
+      if (next.done) {
+        throw new Error('input ended before all values were provided')
+      }
+      answers.push(String(next.value).trim())
+    }
   } finally {
     rl.close()
   }
+  return answers
 }
 
 async function runLogin(clear = false): Promise<void> {
@@ -80,9 +114,23 @@ async function runLogin(clear = false): Promise<void> {
     ].join('\n'),
   )
 
-  const appKey = await prompt('AppKey: ')
-  const appSecret = await prompt('AppSecret: ')
-  const robotCodeInput = await prompt('RobotCode (blank = same as AppKey): ')
+  let appKey: string
+  let appSecret: string
+  let robotCodeInput: string
+  try {
+    ;[appKey, appSecret, robotCodeInput] = (await promptAll([
+      'AppKey: ',
+      'AppSecret: ',
+      'RobotCode (blank = same as AppKey): ',
+    ])) as [string, string, string]
+  } catch (error) {
+    process.stderr.write(
+      `\nLogin aborted: ${error instanceof Error ? error.message : String(error)}\n` +
+        'Set DINGTALK_APP_KEY / DINGTALK_APP_SECRET / DINGTALK_ROBOT_CODE instead\n' +
+        'if you cannot answer the prompts interactively.\n',
+    )
+    process.exit(1)
+  }
 
   if (!appKey || !appSecret) {
     process.stderr.write('AppKey and AppSecret are both required.\n')

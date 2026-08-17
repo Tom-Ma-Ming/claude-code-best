@@ -33,7 +33,25 @@ async function request<T>(
   }
 
   try {
-    const response = await fetch(url, { ...init, signal: controller.signal })
+    let response: Response
+    try {
+      response = await fetch(url, { ...init, signal: controller.signal })
+    } catch (error) {
+      // undici collapses every transport failure into "fetch failed" and hides
+      // the real reason (DNS, TLS, ECONNREFUSED, a global dispatcher) on
+      // `cause`. Surfacing it is the difference between a useful error and a
+      // user assuming their credentials are wrong.
+      const cause = (error as { cause?: { code?: string; message?: string } })
+        .cause
+      const detail = cause?.code || cause?.message
+      const host = new URL(url).host
+      throw new Error(
+        `Could not reach ${host}: ${error instanceof Error ? error.message : String(error)}` +
+          (detail ? ` (${detail})` : ''),
+        { cause: error },
+      )
+    }
+
     if (!response.ok) {
       // DingTalk puts the useful part in the body, not the status line.
       const body = await response.text().catch(() => '')
