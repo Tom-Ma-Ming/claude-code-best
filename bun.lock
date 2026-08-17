@@ -34,6 +34,7 @@
         "@biomejs/biome": "^2.4.12",
         "@claude-code-best/agent-tools": "workspace:*",
         "@claude-code-best/builtin-tools": "workspace:*",
+        "@claude-code-best/dingtalk": "workspace:*",
         "@claude-code-best/mcp-client": "workspace:*",
         "@claude-code-best/weixin": "workspace:*",
         "@commander-js/extra-typings": "^14.0.0",
@@ -256,6 +257,13 @@
       "version": "1.0.0",
       "dependencies": {
         "highlight.js": "latest",
+      },
+    },
+    "packages/dingtalk": {
+      "name": "@claude-code-best/dingtalk",
+      "version": "1.0.0",
+      "dependencies": {
+        "ws": "^8.20.0",
       },
     },
     "packages/image-processor-napi": {
@@ -603,6 +611,8 @@
     "@claude-code-best/agent-tools": ["@claude-code-best/agent-tools@workspace:packages/agent-tools"],
 
     "@claude-code-best/builtin-tools": ["@claude-code-best/builtin-tools@workspace:packages/builtin-tools"],
+
+    "@claude-code-best/dingtalk": ["@claude-code-best/dingtalk@workspace:packages/dingtalk"],
 
     "@claude-code-best/mcp-chrome-bridge": ["@claude-code-best/mcp-chrome-bridge@3.0.1", "", { "dependencies": { "@hono/node-server": "^1.19.13", "@modelcontextprotocol/sdk": "^1.11.0", "commander": "^13.1.0", "hono": "^4.12.12", "is-admin": "^4.0.0" }, "bin": { "mcp-chrome-bridge": "dist/cli.js", "mcp-chrome-stdio": "dist/mcp/mcp-server-stdio.js" } }, "sha512-ozeLHVOdckTUsWKJneJAL+CclrUlwVyBpfzFxgsrSL9f0LvjlJXE7+VcF5OmjDPwmZy6QNorvtg3/8NT2cIlzA=="],
 
@@ -3135,6 +3145,8 @@
     "@babel/helper-compilation-targets/semver": ["semver@6.3.1", "https://registry.npmmirror.com/semver/-/semver-6.3.1.tgz", { "bin": { "semver": "bin/semver.js" } }, "sha512-BR7VvDCVHO+q2xBEWskxS6DJE1qRnb7DxzUrogb71CWoSficBxYsiAGd+Kl0mmq/MprG9yArRkyrQxTO6XjMzA=="],
 
     "@claude-code-best/agent-tools/zod": ["zod@3.25.76", "https://registry.npmmirror.com/zod/-/zod-3.25.76.tgz", {}, "sha512-gzUt/qt81nXsFGKIFcC3YnfEAx5NkunCfnDlvuBSSFS02bcXu4Lmea0AFIUwbLWxWPx3d9p8S5QoaujKcNQxcQ=="],
+
+    "@claude-code-best/dingtalk/ws": ["ws@8.21.0", "", { "peerDependencies": { "bufferutil": "^4.0.1", "utf-8-validate": ">=5.0.2" }, "optionalPeers": ["bufferutil", "utf-8-validate"] }, "sha512-Vsp28b7DRcimFQvrqu2Wek3z1iYxDCWqHYB8Qsnk/S4RfaCQzPGPyBNuVjJV3cd6UiKtUtp6sNM77gWvzcCH+g=="],
 
     "@claude-code-best/mcp-chrome-bridge/@hono/node-server": ["@hono/node-server@1.19.13", "https://registry.npmmirror.com/@hono/node-server/-/node-server-1.19.13.tgz", { "peerDependencies": { "hono": "^4" } }, "sha512-TsQLe4i2gvoTtrHje625ngThGBySOgSK3Xo2XRYOdqGN1teR8+I7vchQC46uLJi8OF62YTYA3AhSpumtkhsaKQ=="],
 

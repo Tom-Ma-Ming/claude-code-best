@@ -14,6 +14,7 @@
  * 2. Call registerBuiltinPlugin() with the plugin definition here
  */
 
+import { registerDingtalkBuiltinPlugin } from './dingtalk.js'
 import { registerWeixinBuiltinPlugin } from './weixin.js'
 
 /**
@@ -21,4 +22,5 @@ import { registerWeixinBuiltinPlugin } from './weixin.js'
  */
 export function initBuiltinPlugins(): void {
   registerWeixinBuiltinPlugin()
+  registerDingtalkBuiltinPlugin()
 }
