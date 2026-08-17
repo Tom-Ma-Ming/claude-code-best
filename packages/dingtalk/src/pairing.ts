@@ -166,11 +166,17 @@ export function boundConversations(): string[] {
 /**
  * Whether this instance should handle a conversation.
  *
- * NOTE: this is a guard, not a router. Two ccb instances sharing one AppKey
- * each open their own Stream connection, and DingTalk's delivery behaviour
- * across multiple connections for the same clientId is not something we can
- * control — a message routed to the wrong instance is dropped here rather than
- * forwarded. Run one AppKey per instance; use this only as a safety net.
+ * This is a single-instance guard, NOT a way to shard one robot across several
+ * ccb instances.
+ *
+ * Measured 2026-08-17: DingTalk accepts multiple concurrent Stream connections
+ * for one clientId, but delivers each inbound message to exactly ONE of them —
+ * it load-balances rather than broadcasts. So two instances sharing an AppKey
+ * do not both see a message; whichever connection receives it is the only one
+ * that can act, and filtering there drops the message instead of forwarding it.
+ *
+ * For several projects, give each its own DingTalk app (its own AppKey). Use
+ * this list only to make one instance ignore conversations it should not serve.
  */
 export function isConversationBound(conversationId: string): boolean {
   const bound = boundConversations()
