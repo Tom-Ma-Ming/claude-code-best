@@ -1,6 +1,11 @@
 import { getAccessToken } from './api.js'
 import { categoryForMsgType, downloadInboundFile } from './media.js'
-import { addPendingPairing, isAllowed } from './pairing.js'
+import {
+  addPendingPairing,
+  checkAccess,
+  isConversationBound,
+  senderIdentity,
+} from './pairing.js'
 import {
   consumePendingPermission,
   setActivePermissionChat,
@@ -127,9 +132,21 @@ export async function processMessage(
   const chatId = msg.conversationId
   if (!chatId) return
 
-  // senderStaffId is empty for external contacts; senderId always exists.
-  const senderId = msg.senderStaffId || msg.senderId
-  if (!senderId) return
+  // Several ccb instances sharing one robot each get their own Stream
+  // connection; a bound instance ignores conversations that are not its own.
+  if (!isConversationBound(chatId)) {
+    process.stderr.write(
+      `[dingtalk] Ignoring message from unbound conversation ${chatId}\n`,
+    )
+    return
+  }
+
+  // senderStaffId (org userId) is absent for external contacts and for members
+  // of other orgs in a shared group — those fall back to the opaque senderId,
+  // kept in a separate namespace so the two can never collide.
+  const identity = senderIdentity(msg)
+  if (!identity) return
+  const senderId = identity.raw
 
   if (msg.sessionWebhook) {
     rememberSessionWebhook(
@@ -147,25 +164,36 @@ export async function processMessage(
     senderId,
   }
 
-  if (!isAllowed(senderId)) {
-    const code = addPendingPairing(senderId)
+  const access = checkAccess(identity)
+  if (!access.allowed) {
+    // An external sender is refused outright rather than offered a code: a
+    // pairing code implies the identity is worth binding, and an opaque
+    // senderId is not one we can vouch for.
+    let text: string
+    if (access.reason === 'external-not-permitted') {
+      text = [
+        'This robot only accepts messages from members of its own organization.',
+        '',
+        'If you are the operator and want to allow external senders, set',
+        '"allowExternal": true in ~/.ccb/channels/dingtalk/access.json.',
+      ].join('\n')
+    } else {
+      const code = addPendingPairing(identity.key)
+      text = [
+        'This robot is not paired with you yet.',
+        '',
+        `Your pairing code is: ${code}`,
+        '',
+        'Ask the operator to confirm on the machine running ccb:',
+        `  ccb dingtalk access pair ${code}`,
+      ].join('\n')
+    }
+
     try {
-      await sendText({
-        account: ctx.account,
-        target,
-        text: [
-          'This robot is not paired with you yet.',
-          '',
-          `Your pairing code is: ${code}`,
-          '',
-          'Ask the operator to confirm on the machine running ccb:',
-          `  ccb dingtalk access pair ${code}`,
-        ].join('\n'),
-        signal: ctx.signal,
-      })
+      await sendText({ account: ctx.account, target, text, signal: ctx.signal })
     } catch (error) {
       process.stderr.write(
-        `[dingtalk] Failed to send pairing code: ${error instanceof Error ? error.message : String(error)}\n`,
+        `[dingtalk] Failed to send access notice: ${error instanceof Error ? error.message : String(error)}\n`,
       )
     }
     return
@@ -228,6 +256,7 @@ export async function processMessage(
     chatId,
     senderId,
     senderNick: msg.senderNick,
+    conversationTitle: msg.conversationTitle,
     messageId: String(msg.msgId || ''),
     text: text || '(media attachment)',
     conversationType,

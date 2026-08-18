@@ -20,10 +20,13 @@ afterEach(() => {
 
 const {
   addPendingPairing,
+  checkAccess,
   confirmPairing,
   isAllowed,
+  isConversationBound,
   loadAccessConfig,
   saveAccessConfig,
+  senderIdentity,
 } = await import('../pairing.js')
 
 describe('loadAccessConfig', () => {
@@ -86,5 +89,116 @@ describe('confirmPairing', () => {
     saveAccessConfig(loadAccessConfig())
     confirmPairing(addPendingPairing('staff-1'))
     expect(loadAccessConfig().allowFrom).toEqual(['staff-1'])
+  })
+})
+
+describe('senderIdentity', () => {
+  test('prefers the org staff id', () => {
+    expect(
+      senderIdentity({ senderStaffId: 'staff-1', senderId: 'op-9' }),
+    ).toEqual({
+      kind: 'staff',
+      raw: 'staff-1',
+      key: 'staff-1',
+    })
+  })
+
+  test('namespaces an external sender so it cannot collide with a staff id', () => {
+    expect(senderIdentity({ senderId: 'staff-1' })).toEqual({
+      kind: 'external',
+      raw: 'staff-1',
+      key: 'external:staff-1',
+    })
+  })
+
+  test('returns null when neither id is present', () => {
+    expect(senderIdentity({})).toBeNull()
+  })
+})
+
+describe('checkAccess', () => {
+  const staff = { kind: 'staff' as const, raw: 's1', key: 's1' }
+  const external = { kind: 'external' as const, raw: 'e1', key: 'external:e1' }
+
+  test('refuses an unpaired org member', () => {
+    expect(checkAccess(staff)).toEqual({ allowed: false, reason: 'unpaired' })
+  })
+
+  test('allows a paired org member', () => {
+    saveAccessConfig({ policy: 'pairing', allowFrom: ['s1'] })
+    expect(checkAccess(staff)).toEqual({ allowed: true })
+  })
+
+  test('refuses an external sender before pairing is even offered', () => {
+    saveAccessConfig({ policy: 'pairing', allowFrom: ['external:e1'] })
+    expect(checkAccess(external)).toEqual({
+      allowed: false,
+      reason: 'external-not-permitted',
+    })
+  })
+
+  test('allows an external sender only when opted in AND paired', () => {
+    saveAccessConfig({
+      policy: 'pairing',
+      allowFrom: ['external:e1'],
+      allowExternal: true,
+    })
+    expect(checkAccess(external)).toEqual({ allowed: true })
+  })
+
+  test('an external sender opted in but unpaired is still refused', () => {
+    saveAccessConfig({ policy: 'pairing', allowFrom: [], allowExternal: true })
+    expect(checkAccess(external)).toEqual({
+      allowed: false,
+      reason: 'unpaired',
+    })
+  })
+
+  test('a staff id does not grant access to the external entry of the same value', () => {
+    saveAccessConfig({
+      policy: 'pairing',
+      allowFrom: ['e1'],
+      allowExternal: true,
+    })
+    expect(checkAccess(external)).toEqual({
+      allowed: false,
+      reason: 'unpaired',
+    })
+  })
+
+  test('disabled policy allows everyone including externals', () => {
+    saveAccessConfig({ policy: 'disabled', allowFrom: [] })
+    expect(checkAccess(external)).toEqual({ allowed: true })
+  })
+})
+
+describe('isConversationBound', () => {
+  test('handles every conversation when nothing is bound', () => {
+    expect(isConversationBound('cid-anything')).toBe(true)
+  })
+
+  test('handles only the bound conversations', () => {
+    saveAccessConfig({
+      policy: 'pairing',
+      allowFrom: [],
+      boundConversations: ['cid-a', 'cid-b'],
+    })
+    expect(isConversationBound('cid-a')).toBe(true)
+    expect(isConversationBound('cid-c')).toBe(false)
+  })
+
+  test('env var overrides the config file', () => {
+    saveAccessConfig({
+      policy: 'pairing',
+      allowFrom: [],
+      boundConversations: ['cid-a'],
+    })
+    process.env.DINGTALK_CONVERSATION_IDS = ' cid-x , cid-y '
+    try {
+      expect(isConversationBound('cid-x')).toBe(true)
+      expect(isConversationBound('cid-a')).toBe(false)
+    } finally {
+      delete process.env.DINGTALK_CONVERSATION_IDS
+    }
   })
 })

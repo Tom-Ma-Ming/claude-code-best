@@ -149,6 +149,103 @@ ccb dingtalk access revoke <staffId> # 撤销
 
 ---
 
+## 多个项目怎么办
+
+**一个钉钉应用对应一个项目。** 每个项目在开放平台建自己的应用（自己的 AppKey），跑自己的 ccb 实例。机器人可以起不同名字（`ccb-项目A`、`ccb-项目B`），在钉钉里一眼能分清。
+
+建应用不麻烦——本文第一步到第四步，一个应用五分钟。
+
+### 不用每次重新登录：用 profile
+
+多个应用意味着多套凭据。**不需要每次切项目重新登录**——每套凭据存成一个 profile：
+
+```bash
+ccb dingtalk login --profile projectA    # 输入 A 应用的 AppKey/AppSecret
+ccb dingtalk login --profile projectB    # 输入 B 应用的
+ccb dingtalk profiles                    # 看有哪些
+```
+
+每个 profile 有**独立的目录**，凭据、配对白名单、待配对码互不干扰：
+
+```
+~/.ccb/channels/dingtalk/                    默认 profile
+~/.ccb/channels/dingtalk/profiles/projectA/  ← account.json + access.json
+~/.ccb/channels/dingtalk/profiles/projectB/
+```
+
+启动会话时用环境变量选择：
+
+```bash
+cd ~/work/projectA
+DINGTALK_PROFILE=projectA ccb --channels plugin:dingtalk@builtin
+```
+
+环境变量会传给 `ccb dingtalk serve` 子进程，MCP server 据此读对应凭据。
+
+每个项目配一次就一劳永逸（用 direnv 的话写进 `.envrc`）：
+
+```bash
+# ~/work/projectA/.envrc
+export DINGTALK_PROFILE=projectA
+```
+
+或者直接做成别名：
+
+```bash
+alias ccb-a='DINGTALK_PROFILE=projectA ccb --channels plugin:dingtalk@builtin'
+alias ccb-b='DINGTALK_PROFILE=projectB ccb --channels plugin:dingtalk@builtin'
+```
+
+所有子命令都接受 `--profile <name>`：
+
+```bash
+ccb dingtalk status --profile projectA
+ccb dingtalk access pair 123456 --profile projectA
+ccb dingtalk access list --profile projectA
+ccb dingtalk login clear --profile projectA
+```
+
+不带 `--profile` 也不设 `DINGTALK_PROFILE` 时用默认 profile（就是 `~/.ccb/channels/dingtalk/`），所以老配置继续可用，不用迁移。
+
+> `DINGTALK_STATE_DIR` 仍然优先于 profile，容器/CI 里直接指定目录的用法不受影响。
+
+### 为什么不能一个 AppKey 配多个实例
+
+直觉上似乎可以：一个机器人拉进 N 个群，每个 ccb 实例只处理自己那个群。**这行不通。**
+
+实测（2026-08-17，两条连接共用同一个 AppKey）：
+
+```
+[conn B] msgId=4+r2t7H9Rw==  group "..."  conv=yJbKHO+2timzXQ==
+
+到达两条连接: 0    只到一条: 1
+```
+
+钉钉**允许**同一 clientId 开多条 Stream 连接，但每条入站消息只投递给**其中一条**——是负载均衡，不是广播。
+
+后果：群 A 的消息可能被投给绑定了群 B 的实例。那个实例按 conversationId 一过滤就把消息**丢弃**了，而群 A 的实例压根没收到。消息永久丢失，且没有任何报错。
+
+### boundConversations 的正确定位
+
+它是**单实例护栏**，不是分片机制：
+
+```jsonc
+// ~/.ccb/channels/dingtalk/access.json
+{
+  "policy": "pairing",
+  "allowFrom": ["staff-id"],
+  "boundConversations": ["conv-id-a"]
+}
+```
+
+也可用环境变量：`DINGTALK_CONVERSATION_IDS=conv-a,conv-b`
+
+用途是让一个实例**忽略不该服务的会话**——比如机器人被拉进了十个群，但你只想让它响应其中一个。留空表示处理全部。
+
+> 拿 conversationId 的办法：`ccb --channels plugin:dingtalk@builtin --debug mcp`，在群里发一条消息，日志里的 `chat_id` 就是。
+
+---
+
 ## 日常使用
 
 ### 单聊
@@ -158,6 +255,24 @@ ccb dingtalk access revoke <staffId> # 撤销
 ### 群聊
 
 把机器人加进群，然后 **@它** 才会触发。ccb 会自动剥掉 @提及文本，只把真正的指令喂给模型。
+
+> **注意**：只有「你 ↔ 机器人」的一对一会话才是 `single`。把机器人拉进一个只有两个人的群，钉钉仍然按 `group` 上报（实测见过 `conversationTitle` 为 `"张三,李四"` 的双人群）。所以别用「群里只有我一个人」来判断是不是私聊。
+
+### 模型怎么分辨不同会话
+
+每条入站消息都会带上会话身份，模型据此区分：
+
+```xml
+<channel source="plugin:dingtalk:dingtalk"
+         chat_id="..."
+         sender_id="..."
+         conversation_type="single|group"
+         conversation_title="后端项目组">
+```
+
+MCP server 的 instructions 里明确要求：不同 `chat_id` 是**受众不同的独立会话**，回复必须用所答消息的 `chat_id`，且不得把一个会话的内容复述到另一个会话——群里的人和私聊的人互相看不见。
+
+没有这两个属性时，模型眼里只是两个不透明 ID，回复串台是必然的。
 
 ### 远程审批
 

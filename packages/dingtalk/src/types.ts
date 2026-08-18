@@ -154,6 +154,8 @@ export interface ParsedMessage {
   /** Who sent it — `senderStaffId` when available, else `senderId`. */
   senderId: string
   senderNick?: string
+  /** Group name; absent for 1:1 chats. */
+  conversationTitle?: string
   messageId: string
   text: string
   conversationType: string
