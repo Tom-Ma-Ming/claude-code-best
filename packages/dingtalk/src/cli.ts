@@ -39,6 +39,8 @@ function printUsage(): void {
       'Usage:',
       '  ccb dingtalk serve',
       '  ccb dingtalk login              Enter AppKey / AppSecret / RobotCode',
+      '  ccb dingtalk login --app-key K --app-secret S [--robot-code R]',
+      '                                  Non-interactive; add --force to replace',
       '  ccb dingtalk login clear        Forget stored credentials',
       '  ccb dingtalk status             Show what is configured',
       '  ccb dingtalk bind               Bind this session to a person or group',
@@ -117,7 +119,39 @@ function profileLabel(profile?: string): string {
   return profile ? ` (profile: ${profile})` : ''
 }
 
-async function runLogin(clear = false, profile?: string): Promise<void> {
+/** Pull `--flag value` / `--flag=value` out of argv. */
+function flagValue(args: string[], name: string): string | undefined {
+  const bare = `--${name}`
+  const eq = `${bare}=`
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i]!
+    if (arg === bare) return args[i + 1]
+    if (arg.startsWith(eq)) return arg.slice(eq.length)
+  }
+  return undefined
+}
+
+export interface LoginFlags {
+  appKey?: string
+  appSecret?: string
+  robotCode?: string
+  force?: boolean
+}
+
+export function parseLoginFlags(args: string[]): LoginFlags {
+  return {
+    appKey: flagValue(args, 'app-key'),
+    appSecret: flagValue(args, 'app-secret'),
+    robotCode: flagValue(args, 'robot-code'),
+    force: args.includes('--force'),
+  }
+}
+
+async function runLogin(
+  clear = false,
+  profile?: string,
+  flags: LoginFlags = {},
+): Promise<void> {
   if (clear) {
     clearAccount(profile)
     process.stdout.write(
@@ -126,7 +160,7 @@ async function runLogin(clear = false, profile?: string): Promise<void> {
     return
   }
 
-  const existing = loadAccount(profile)
+  const existing = flags.force ? null : loadAccount(profile)
   if (existing) {
     process.stdout.write(
       [
@@ -135,7 +169,8 @@ async function runLogin(clear = false, profile?: string): Promise<void> {
         `  RobotCode: ${existing.robotCode}`,
         `  Saved:     ${existing.savedAt}`,
         '',
-        `Run \`ccb dingtalk login clear${profile ? ` --profile ${profile}` : ''}\` to reset.`,
+        `Run \`ccb dingtalk login clear${profile ? ` --profile ${profile}` : ''}\` to reset,`,
+        'or pass --force to overwrite in place.',
       ].join('\n') + '\n',
     )
     return
@@ -158,6 +193,21 @@ async function runLogin(clear = false, profile?: string): Promise<void> {
   let appKey: string
   let appSecret: string
   let robotCodeInput: string
+
+  // Fully specified on the command line — no prompts. This is the path for
+  // scripting per-project setup across several robots.
+  if (flags.appKey && flags.appSecret) {
+    appKey = flags.appKey
+    appSecret = flags.appSecret
+    robotCodeInput = flags.robotCode ?? ''
+    return finishLogin(appKey, appSecret, robotCodeInput, profile)
+  }
+
+  if (flags.appKey || flags.appSecret) {
+    process.stderr.write('--app-key and --app-secret must be given together.\n')
+    process.exit(1)
+  }
+
   try {
     ;[appKey, appSecret, robotCodeInput] = (await promptAll([
       'AppKey: ',
@@ -178,6 +228,16 @@ async function runLogin(clear = false, profile?: string): Promise<void> {
     process.exit(1)
   }
 
+  return finishLogin(appKey, appSecret, robotCodeInput, profile)
+}
+
+/** Shared tail of both the interactive and flag-driven login paths. */
+async function finishLogin(
+  appKey: string,
+  appSecret: string,
+  robotCodeInput: string,
+  profile?: string,
+): Promise<void> {
   const robotCode = robotCodeInput || appKey
 
   // Verify before persisting — a typo'd secret is much cheaper to catch here
@@ -554,7 +614,11 @@ export async function handleDingtalkCli(
       await runDingtalkMcpServer(version ?? '0.0.0', serverDeps)
       return
     case 'login':
-      await runLogin(rest[0] === 'clear', activeProfile())
+      await runLogin(
+        rest[0] === 'clear',
+        activeProfile(),
+        parseLoginFlags(rest),
+      )
       return
     case 'status':
       runStatus()

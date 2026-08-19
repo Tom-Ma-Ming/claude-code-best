@@ -4,8 +4,10 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 let stateDir: string
+let fakeHome: string
 const saved: Record<string, string | undefined> = {}
 const ENV_KEYS = [
+  'HOME',
   'DINGTALK_STATE_DIR',
   'DINGTALK_PROFILE',
   'DINGTALK_APP_KEY',
@@ -21,6 +23,11 @@ beforeEach(() => {
   }
   stateDir = mkdtempSync(join(tmpdir(), 'ccb-dingtalk-accounts-'))
   process.env.DINGTALK_STATE_DIR = stateDir
+  // Sandbox the home-relative path too: several tests below drop
+  // DINGTALK_STATE_DIR on purpose to exercise channelRoot(), which resolves
+  // through os.homedir(). Without this they create dirs in the real ~/.ccb.
+  fakeHome = mkdtempSync(join(tmpdir(), 'ccb-dingtalk-home-'))
+  process.env.HOME = fakeHome
 })
 
 afterEach(() => {
@@ -29,6 +36,7 @@ afterEach(() => {
     else process.env[key] = saved[key]
   }
   rmSync(stateDir, { recursive: true, force: true })
+  rmSync(fakeHome, { recursive: true, force: true })
 })
 
 const {
@@ -38,6 +46,7 @@ const {
   DEFAULT_BASE_URL,
   getStateDir,
   listProfiles,
+  stateDirPath,
   loadAccount,
   saveAccount,
 } = await import('../accounts.js')
@@ -143,14 +152,15 @@ describe('profiles', () => {
 
   test('default profile keeps using the channel root', () => {
     delete process.env.DINGTALK_PROFILE
-    expect(getStateDir()).toBe(stateDir)
+    expect(stateDirPath()).toBe(stateDir)
   })
 
   test('a named profile gets its own directory', () => {
     delete process.env[CHANNEL_ROOT]
     try {
-      const dir = getStateDir('projectA')
-      expect(dir).toContain(
+      // stateDirPath is pure. getStateDir() mkdirs, and os.homedir() ignores a
+      // test-set $HOME under Bun, so calling it here would litter the real ~/.ccb.
+      expect(stateDirPath('projectA')).toContain(
         join('channels', 'dingtalk', 'profiles', 'projectA'),
       )
     } finally {
@@ -161,7 +171,7 @@ describe('profiles', () => {
   test('DINGTALK_STATE_DIR still overrides a profile outright', () => {
     process.env.DINGTALK_PROFILE = 'projectA'
     try {
-      expect(getStateDir()).toBe(stateDir)
+      expect(stateDirPath()).toBe(stateDir)
     } finally {
       delete process.env.DINGTALK_PROFILE
     }
@@ -207,38 +217,78 @@ describe('profiles', () => {
     expect(() => assertValidProfileName(name)).not.toThrow()
   })
 
-  test('profiles are isolated from each other', () => {
+  test('distinct profiles resolve to distinct directories', () => {
     delete process.env[CHANNEL_ROOT]
     try {
-      saveAccount(
-        {
-          appKey: 'a',
-          appSecret: 's',
-          robotCode: 'r',
-          baseUrl: DEFAULT_BASE_URL,
-          savedAt: 'x',
-        },
-        'isoTestA',
-      )
-      saveAccount(
-        {
-          appKey: 'b',
-          appSecret: 't',
-          robotCode: 'q',
-          baseUrl: DEFAULT_BASE_URL,
-          savedAt: 'y',
-        },
-        'isoTestB',
-      )
-      expect(loadAccount('isoTestA')?.appKey).toBe('a')
-      expect(loadAccount('isoTestB')?.appKey).toBe('b')
-      expect(listProfiles()).toEqual(
-        expect.arrayContaining(['isoTestA', 'isoTestB']),
-      )
+      const a = stateDirPath('isoA')
+      const b = stateDirPath('isoB')
+      expect(a).not.toBe(b)
+      expect(a.endsWith(join('profiles', 'isoA'))).toBe(true)
+      expect(b.endsWith(join('profiles', 'isoB'))).toBe(true)
     } finally {
-      clearAccount('isoTestA')
-      clearAccount('isoTestB')
       process.env[CHANNEL_ROOT] = stateDir
+    }
+  })
+
+  test('credentials round-trip per state dir without leaking across', () => {
+    const dirA = join(stateDir, 'a')
+    const dirB = join(stateDir, 'b')
+
+    process.env[CHANNEL_ROOT] = dirA
+    saveAccount({
+      appKey: 'a',
+      appSecret: 's',
+      robotCode: 'r',
+      baseUrl: DEFAULT_BASE_URL,
+      savedAt: 'x',
+    })
+    process.env[CHANNEL_ROOT] = dirB
+    saveAccount({
+      appKey: 'b',
+      appSecret: 't',
+      robotCode: 'q',
+      baseUrl: DEFAULT_BASE_URL,
+      savedAt: 'y',
+    })
+
+    process.env[CHANNEL_ROOT] = dirA
+    expect(loadAccount()?.appKey).toBe('a')
+    process.env[CHANNEL_ROOT] = dirB
+    expect(loadAccount()?.appKey).toBe('b')
+    process.env[CHANNEL_ROOT] = stateDir
+  })
+})
+
+describe('env credentials vs named profiles', () => {
+  test('env configures the unnamed default profile', () => {
+    delete process.env.DINGTALK_STATE_DIR
+    delete process.env.DINGTALK_PROFILE
+    process.env.DINGTALK_APP_KEY = 'env-key'
+    process.env.DINGTALK_APP_SECRET = 'env-secret'
+    try {
+      expect(loadAccount()?.appKey).toBe('env-key')
+    } finally {
+      process.env.DINGTALK_STATE_DIR = stateDir
+    }
+  })
+
+  test('env does NOT shadow an explicitly named profile', () => {
+    process.env.DINGTALK_APP_KEY = 'env-key'
+    process.env.DINGTALK_APP_SECRET = 'env-secret'
+    // The named profile has nothing stored, so it must read as unconfigured —
+    // not as "already configured" from the env of some other project.
+    expect(loadAccount('projectB')).toBeNull()
+  })
+
+  test('env does NOT shadow DINGTALK_PROFILE either', () => {
+    process.env.DINGTALK_APP_KEY = 'env-key'
+    process.env.DINGTALK_APP_SECRET = 'env-secret'
+    process.env.DINGTALK_PROFILE = 'projectB'
+    delete process.env.DINGTALK_STATE_DIR
+    try {
+      expect(loadAccount()).toBeNull()
+    } finally {
+      process.env.DINGTALK_STATE_DIR = stateDir
     }
   })
 })

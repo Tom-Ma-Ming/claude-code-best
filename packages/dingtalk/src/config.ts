@@ -1,6 +1,6 @@
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { getStateDir } from './accounts.js'
+import { getStateDir, stateDirPath } from './accounts.js'
 
 /**
  * How this ccb instance talks to DingTalk.
@@ -54,7 +54,7 @@ export const DEFAULT_CONFIG: ChannelConfig = {
 }
 
 function configPath(profile?: string): string {
-  return join(getStateDir(profile), 'config.json')
+  return join(stateDirPath(profile), 'config.json')
 }
 
 export function loadChannelConfig(profile?: string): ChannelConfig {
@@ -81,6 +81,7 @@ export function saveChannelConfig(
   config: ChannelConfig,
   profile?: string,
 ): void {
+  getStateDir(profile)
   writeFileSync(configPath(profile), JSON.stringify(config, null, 2), 'utf-8')
 }
 
