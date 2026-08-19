@@ -1,5 +1,6 @@
-import { readFileSync } from 'node:fs'
-import { loadAccount } from './accounts.js'
+import { existsSync, readFileSync, writeFileSync } from 'node:fs'
+import { join } from 'node:path'
+import { getStateDir, loadAccount, stateDirPath } from './accounts.js'
 import { loadChannelConfig, outboundTarget } from './config.js'
 import { sendMarkdown, sendText } from './send.js'
 import { ConversationType } from './types.js'
@@ -51,6 +52,102 @@ export function relayCategory(event: string): keyof RelayConfig | null {
       return 'errors'
     default:
       return null
+  }
+}
+
+/**
+ * Tools that fire constantly and say nothing a spectator can act on. They are
+ * still counted, so an update reads "…and 14 others", but they never trigger a
+ * message on their own.
+ */
+const QUIET_TOOLS = new Set([
+  'Read',
+  'Glob',
+  'Grep',
+  'TodoWrite',
+  'TaskList',
+  'TaskGet',
+  'NotebookRead',
+  'SearchExtraTools',
+])
+
+/**
+ * Minimum gap between tool-status messages.
+ *
+ * PreToolUse fires per tool call, and a single turn routinely makes dozens —
+ * relaying each one floods the chat. Status is coalesced into at most one
+ * message per window, carrying the current tool plus how many went by since
+ * the last update.
+ */
+const TOOL_STATUS_THROTTLE_MS = 45_000
+
+interface RelayState {
+  lastToolStatusAt: number
+  skipped: number
+}
+
+function relayStatePath(): string {
+  return join(stateDirPath(), 'relay-state.json')
+}
+
+function loadRelayState(): RelayState {
+  const path = relayStatePath()
+  if (!existsSync(path)) return { lastToolStatusAt: 0, skipped: 0 }
+  try {
+    const parsed = JSON.parse(
+      readFileSync(path, 'utf-8'),
+    ) as Partial<RelayState>
+    return {
+      lastToolStatusAt: parsed.lastToolStatusAt ?? 0,
+      skipped: parsed.skipped ?? 0,
+    }
+  } catch {
+    return { lastToolStatusAt: 0, skipped: 0 }
+  }
+}
+
+function saveRelayState(state: RelayState): void {
+  try {
+    getStateDir()
+    writeFileSync(relayStatePath(), JSON.stringify(state), 'utf-8')
+  } catch {
+    // Throttling is best-effort; a failed write must not break the hook.
+  }
+}
+
+export function resetRelayStateForTests(): void {
+  saveRelayState({ lastToolStatusAt: 0, skipped: 0 })
+}
+
+/**
+ * Decide whether this tool call should produce a status message.
+ *
+ * Each hook invocation is its own process, so the window is tracked on disk
+ * rather than in memory.
+ */
+export function shouldSendToolStatus(
+  toolName: string,
+  now: number,
+  state: RelayState,
+  throttleMs = TOOL_STATUS_THROTTLE_MS,
+):
+  | { send: false; state: RelayState }
+  | { send: true; skipped: number; state: RelayState } {
+  if (QUIET_TOOLS.has(toolName)) {
+    return { send: false, state: { ...state, skipped: state.skipped + 1 } }
+  }
+  // 0 means "never sent" — without this the first status of a session is
+  // suppressed whenever `now` happens to be smaller than the window.
+  if (
+    state.lastToolStatusAt !== 0 &&
+    now - state.lastToolStatusAt < throttleMs
+  ) {
+    return { send: false, state: { ...state, skipped: state.skipped + 1 } }
+  }
+  return {
+    send: true,
+    skipped: state.skipped,
+    state: { lastToolStatusAt: now, skipped: 0 },
   }
 }
 
@@ -113,8 +210,23 @@ export function lastAssistantText(transcriptPath: string): string | null {
   return found
 }
 
+/**
+ * Whether a prompt arrived through this channel rather than the terminal.
+ *
+ * Channel messages are injected as `<channel source="plugin:dingtalk:...">`.
+ * Mirroring one back is an echo: the person who typed it in DingTalk sees
+ * their own message quoted at them, and in group mode the whole group sees
+ * every instruction twice. Only terminal input is worth relaying.
+ */
+export function isChannelEcho(prompt: string): boolean {
+  return /<channel\b[^>]*\bsource\s*=\s*"plugin:dingtalk[:@"]/i.test(prompt)
+}
+
 /** Render a hook payload as the line a spectator should see, or null to skip. */
-export function formatRelay(payload: HookPayload): {
+export function formatRelay(
+  payload: HookPayload,
+  skippedSinceLast = 0,
+): {
   text: string
   markdown: boolean
   title: string
@@ -125,6 +237,7 @@ export function formatRelay(payload: HookPayload): {
     case 'UserPromptSubmit': {
       const prompt = (payload.prompt ?? '').trim()
       if (!prompt) return null
+      if (isChannelEcho(prompt)) return null
       return {
         text: `**🧑 你**\n\n${prompt}`,
         markdown: true,
@@ -146,8 +259,9 @@ export function formatRelay(payload: HookPayload): {
 
     case 'PreToolUse': {
       if (!payload.tool_name) return null
+      const others = skippedSinceLast > 0 ? `  (+${skippedSinceLast} 个)` : ''
       return {
-        text: `⏳ ${payload.tool_name}  ${preview(payload.tool_input, 120)}`,
+        text: `⏳ ${payload.tool_name}  ${preview(payload.tool_input, 120)}${others}`,
         markdown: false,
         title: '执行中',
       }
@@ -210,7 +324,19 @@ export async function relayHookPayload(payload: HookPayload): Promise<void> {
   const account = loadAccount()
   if (!account) return
 
-  const rendered = formatRelay(payload)
+  let skipped = 0
+  if (category === 'toolStatus') {
+    const decision = shouldSendToolStatus(
+      payload.tool_name ?? '',
+      Date.now(),
+      loadRelayState(),
+    )
+    saveRelayState(decision.state)
+    if (!decision.send) return
+    skipped = decision.skipped
+  }
+
+  const rendered = formatRelay(payload, skipped)
   if (!rendered) return
 
   const target = {

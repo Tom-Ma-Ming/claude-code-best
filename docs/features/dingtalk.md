@@ -202,7 +202,7 @@ ccb dingtalk hooks install
 |------|------|------|
 | `prompts` | 你在终端输入的指令 | `UserPromptSubmit` |
 | `replies` | ccb 每轮的最终回复 | `Stop` |
-| `toolStatus` | 正在执行什么工具 | `PreToolUse` |
+| `toolStatus` | 正在执行什么工具（**已节流**，见下）| `PreToolUse` |
 | `errors` | 工具报错/超时/中断、轮次因 API 错误中止、会话结束 | `PostToolUseFailure` `StopFailure` `SessionEnd` |
 
 ```bash
@@ -213,6 +213,27 @@ ccb dingtalk hooks uninstall
 ```
 
 > **工具成功完成时不发消息**。成功已经隐含在下一条状态行或最终回复里，再发一遍只会让消息量翻倍。只有失败才通知。
+
+### 为什么工具状态要节流
+
+`PreToolUse` 对**每个**工具调用都触发，而一轮里 agent 常常调用几十个工具——原样转发会把群刷爆。所以做了两层收敛：
+
+1. **高频只读工具不单独播报** —— `Read`、`Glob`、`Grep`、`TodoWrite` 这些只计数不发消息
+2. **45 秒内最多一条** —— 期间的调用折叠进下一条，显示成 `⏳ Bash ...  (+14 个)`
+
+每次 hook 都是独立进程，所以窗口状态存在 `relay-state.json` 里而不是内存。
+
+还嫌吵就直接关掉：
+
+```bash
+ccb dingtalk relay off toolStatus
+```
+
+### 群聊模式不会回声
+
+在钉钉里发的指令会注入会话并触发 `UserPromptSubmit`。如果照直转发，就会把你刚发的消息再发回群里——群里每条指令看两遍。
+
+所以转发会跳过**来自本频道**的 prompt（识别注入时的 `<channel source="plugin:dingtalk:...">` 包裹），只转发你在**终端**里输入的内容。
 
 安装器只动自己写的那几条，你已有的 hook 不受影响；重复安装不会产生重复条目；`settings.json` 是坏 JSON 时会**拒绝写入**而不是覆盖掉。
 
