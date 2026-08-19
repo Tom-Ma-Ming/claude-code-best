@@ -103,6 +103,38 @@ export type {
   ProcessContext,
 } from './monitor.js'
 
+// Channel binding & modes
+export {
+  acceptsInbound,
+  DEFAULT_CONFIG,
+  DEFAULT_RELAY,
+  isBound,
+  loadChannelConfig,
+  outboundTarget,
+  saveChannelConfig,
+} from './config.js'
+export type { ChannelConfig, ChannelMode, RelayConfig } from './config.js'
+export { applyBinding, waitForFirstMessage } from './bind.js'
+export type { BindResult } from './bind.js'
+
+// Terminal → DingTalk relay
+export {
+  formatRelay,
+  lastAssistantText,
+  relayCategory,
+  relayHookPayload,
+} from './relay.js'
+export type { HookPayload } from './relay.js'
+export {
+  buildRelayHooks,
+  HOOK_MARKER,
+  installRelayHooks,
+  RELAY_HOOK_EVENTS,
+  relayHooksInstalled,
+  uninstallRelayHooks,
+} from './hooks.js'
+export type { RelayHookEvent } from './hooks.js'
+
 // MCP server
 export { createDingtalkMcpServer, runDingtalkMcpServer } from './server.js'
 export type { DingtalkServerDeps } from './server.js'

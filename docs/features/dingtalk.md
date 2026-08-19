@@ -149,6 +149,73 @@ ccb dingtalk access revoke <staffId> # 撤销
 
 ---
 
+## 绑定：让机器人只服务你（或一个群）
+
+配好凭据后还要**绑定**，否则机器人不会响应任何人。
+
+```bash
+ccb dingtalk bind
+```
+
+它会开一条连接等你发消息，然后把发送者和会话记下来：
+
+- **私聊模式** — 直接给机器人发消息 → 只有你、且只在这个会话里，能驱动 ccb
+- **群聊模式** — 把机器人拉进群、@ 它 → 只有这个群能驱动，群里谁能驱动仍由配对管
+
+模式**根据实际收到的消息推断**。想强制的话：
+
+```bash
+ccb dingtalk bind --private
+ccb dingtalk bind --group
+ccb dingtalk unbind
+```
+
+> 钉钉没有可扫码打开企业内部应用机器人会话的链接（官方给的办法是在搜索框搜机器人名字），所以这里没有二维码。发一条消息拿到的身份和扫码完全等价。
+
+绑定状态看 `ccb dingtalk status`：
+
+```
+Mode:          private
+Bound to:      张三 (cidXXXXXX==)
+Relay:         prompts, replies, toolStatus, errors
+```
+
+**未绑定时机器人拒绝一切**，并在聊天里回一句提示——不用去翻 stderr 才知道为什么没反应。
+
+### 私聊模式为什么两个维度都卡
+
+绑定者在**某个不相干的群**里发言，不算绑定频道，不会驱动会话。只有「绑定的人 + 绑定的会话」同时满足才放行。
+
+## 围观模式：把终端镜像到钉钉
+
+在终端里干活，同时让钉钉那边看到全过程：
+
+```bash
+ccb dingtalk hooks install
+```
+
+写进 `~/.ccb/settings.json`，装完**重启 ccb 会话**生效。
+
+镜像四类内容，各自可开关：
+
+| 类别 | 内容 | Hook |
+|------|------|------|
+| `prompts` | 你在终端输入的指令 | `UserPromptSubmit` |
+| `replies` | ccb 每轮的最终回复 | `Stop` |
+| `toolStatus` | 正在执行什么工具 | `PreToolUse` |
+| `errors` | 工具报错/超时/中断、轮次因 API 错误中止、会话结束 | `PostToolUseFailure` `StopFailure` `SessionEnd` |
+
+```bash
+ccb dingtalk relay off toolStatus   # 嫌吵就关掉
+ccb dingtalk relay on toolStatus
+ccb dingtalk hooks status
+ccb dingtalk hooks uninstall
+```
+
+> **工具成功完成时不发消息**。成功已经隐含在下一条状态行或最终回复里，再发一遍只会让消息量翻倍。只有失败才通知。
+
+安装器只动自己写的那几条，你已有的 hook 不受影响；重复安装不会产生重复条目；`settings.json` 是坏 JSON 时会**拒绝写入**而不是覆盖掉。
+
 ## 多个项目怎么办
 
 **一个钉钉应用对应一个项目。** 每个项目在开放平台建自己的应用（自己的 AppKey），跑自己的 ccb 实例。机器人可以起不同名字（`ccb-项目A`、`ccb-项目B`），在钉钉里一眼能分清。
@@ -305,6 +372,10 @@ Or deny with: no abcde
 | 现象 | 原因 |
 |------|------|
 | 启动后钉钉发消息没反应 | 忘了带 `--channels plugin:dingtalk@builtin` |
+| 机器人回「not bound yet」 | 还没执行 `ccb dingtalk bind` |
+| 私聊有反应、群里没有 | 绑定的是私聊。用 `ccb dingtalk bind --group` 重新绑到群 |
+| 终端干活但钉钉没镜像 | 没装 hook，或装完没重启会话（`ccb dingtalk hooks status`）|
+| 钉钉刷屏 | `ccb dingtalk relay off toolStatus` |
 | 一直只回配对码 | 还没执行 `ccb dingtalk access pair <code>` |
 | 收得到但机器人不说话 | 缺 `qyapi_robot_sendmsg` 权限 |
 | 机器人在钉钉里搜不到 | 应用没发布（第四步） |

@@ -1,3 +1,5 @@
+import { homedir } from 'node:os'
+import { join } from 'node:path'
 import { createInterface } from 'node:readline/promises'
 import {
   activeProfile,
@@ -11,6 +13,12 @@ import {
 } from './accounts.js'
 import { getAccessToken } from './api.js'
 import { applyBinding, waitForFirstMessage } from './bind.js'
+import {
+  installRelayHooks,
+  relayHooksInstalled,
+  uninstallRelayHooks,
+} from './hooks.js'
+import { relayHookPayload, type HookPayload } from './relay.js'
 import {
   isBound,
   loadChannelConfig,
@@ -37,6 +45,10 @@ function printUsage(): void {
       '  ccb dingtalk bind --group       Force group mode',
       '  ccb dingtalk bind --private     Force private mode',
       '  ccb dingtalk unbind             Forget the binding',
+      '  ccb dingtalk hooks install      Mirror this terminal into DingTalk',
+      '  ccb dingtalk hooks uninstall    Stop mirroring',
+      '  ccb dingtalk hooks status       Show whether mirroring is wired up',
+      '  ccb dingtalk relay <on|off> <k> Toggle prompts/replies/toolStatus/errors',
       '  ccb dingtalk profiles           List stored credential profiles',
       '  ccb dingtalk access pair <code> Approve a pairing code',
       '  ccb dingtalk access list        List paired sender IDs',
@@ -291,6 +303,94 @@ function runUnbind(): void {
   process.stdout.write(`Binding cleared${profileLabel(profile)}.\n`)
 }
 
+/** Read a hook payload from stdin (hooks pipe JSON in). */
+async function readStdin(): Promise<string> {
+  const chunks: Buffer[] = []
+  for await (const chunk of process.stdin) chunks.push(Buffer.from(chunk))
+  return Buffer.concat(chunks).toString('utf-8')
+}
+
+/**
+ * Hook entry point. Always exits 0: a relay failure must never block the turn
+ * it is attached to, and hooks that exit non-zero surface errors to the user
+ * or the model.
+ */
+async function runNotify(): Promise<void> {
+  try {
+    const raw = await readStdin()
+    if (!raw.trim()) return
+    await relayHookPayload(JSON.parse(raw) as HookPayload)
+  } catch (error) {
+    process.stderr.write(
+      `[dingtalk] relay skipped: ${error instanceof Error ? error.message : String(error)}\n`,
+    )
+  }
+}
+
+function settingsPathForHooks(): string {
+  return join(homedir(), '.ccb', 'settings.json')
+}
+
+function runHooks(args: string[]): void {
+  const path = settingsPathForHooks()
+  const action = args[0] ?? 'status'
+
+  if (action === 'install') {
+    installRelayHooks(path)
+    process.stdout.write(
+      [
+        `Mirroring installed in ${path}.`,
+        '',
+        "Your prompts, ccb's replies, tool status and errors will now be",
+        'mirrored to the bound DingTalk conversation.',
+        '',
+        'Restart any running ccb session for the hooks to take effect.',
+      ].join('\n') + '\n',
+    )
+    return
+  }
+
+  if (action === 'uninstall') {
+    process.stdout.write(
+      uninstallRelayHooks(path)
+        ? `Mirroring removed from ${path}.\n`
+        : 'Mirroring was not installed.\n',
+    )
+    return
+  }
+
+  process.stdout.write(
+    relayHooksInstalled(path)
+      ? `Mirroring is installed (${path}).\n`
+      : 'Mirroring is not installed. Run `ccb dingtalk hooks install`.\n',
+  )
+}
+
+function runRelayToggle(args: string[]): void {
+  const [state, key] = args
+  const keys = ['prompts', 'replies', 'toolStatus', 'errors'] as const
+  type RelayKey = (typeof keys)[number]
+
+  if ((state !== 'on' && state !== 'off') || !key) {
+    process.stderr.write(
+      `Usage: ccb dingtalk relay <on|off> <${keys.join('|')}>\n`,
+    )
+    process.exit(1)
+  }
+  if (!keys.includes(key as RelayKey)) {
+    process.stderr.write(
+      `Unknown relay key "${key}". One of: ${keys.join(', ')}\n`,
+    )
+    process.exit(1)
+  }
+
+  const profile = activeProfile()
+  const config = loadChannelConfig(profile)
+  config.relay[key as RelayKey] = state === 'on'
+  saveChannelConfig(config, profile)
+  process.stdout.write(`relay.${key} = ${state === 'on'}\n`)
+}
+
 function runProfiles(): void {
   const names = listProfiles()
   const active = activeProfile()
@@ -470,6 +570,15 @@ export async function handleDingtalkCli(
     }
     case 'unbind':
       runUnbind()
+      return
+    case 'notify':
+      await runNotify()
+      return
+    case 'hooks':
+      runHooks(rest)
+      return
+    case 'relay':
+      runRelayToggle(rest)
       return
     case 'profiles':
       runProfiles()
