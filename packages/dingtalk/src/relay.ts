@@ -1,5 +1,5 @@
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
-import { join } from 'node:path'
+import { basename, join } from 'node:path'
 import { getStateDir, loadAccount, stateDirPath } from './accounts.js'
 import { loadChannelConfig, outboundTarget } from './config.js'
 import { sendMarkdown, sendText } from './send.js'
@@ -48,27 +48,47 @@ export function relayCategory(event: string): keyof RelayConfig | null {
       return 'toolStatus'
     case 'PostToolUseFailure':
     case 'StopFailure':
-    case 'SessionEnd':
       return 'errors'
+    case 'SessionStart':
+    case 'SessionEnd':
+      return 'session'
     default:
       return null
   }
 }
 
 /**
- * Tools that fire constantly and say nothing a spectator can act on. They are
- * still counted, so an update reads "…and 14 others", but they never trigger a
- * message on their own.
+ * Tools that never announce themselves by name.
+ *
+ * Two reasons, and the second matters more: they fire constantly (Read/Grep
+ * run dozens of times a turn), and the interesting ones carry the actual work
+ * — a Bash command line, an Edit's diff. Naming those in a group chat
+ * broadcasts what is being run and changed to everyone watching.
+ *
+ * They still count toward the heartbeat, so a spectator sees "still working,
+ * 23 tools" without seeing the contents.
  */
 const QUIET_TOOLS = new Set([
+  // High-frequency reads
   'Read',
   'Glob',
   'Grep',
+  'NotebookRead',
   'TodoWrite',
   'TaskList',
   'TaskGet',
-  'NotebookRead',
+  // Carry command lines / file contents — never broadcast these
+  'Bash',
+  'BashOutput',
+  'PowerShell',
+  'Edit',
+  'MultiEdit',
+  'Write',
+  'NotebookEdit',
+  // ccb's deferred-tool loading machinery — pure plumbing, not progress
+  'ExecuteExtraTool',
   'SearchExtraTools',
+  'SearchExtraToolsTool',
 ])
 
 /**
@@ -132,21 +152,23 @@ export function shouldSendToolStatus(
   throttleMs = TOOL_STATUS_THROTTLE_MS,
 ):
   | { send: false; state: RelayState }
-  | { send: true; skipped: number; state: RelayState } {
-  if (QUIET_TOOLS.has(toolName)) {
-    return { send: false, state: { ...state, skipped: state.skipped + 1 } }
-  }
+  | { send: true; skipped: number; named: boolean; state: RelayState } {
   // 0 means "never sent" — without this the first status of a session is
   // suppressed whenever `now` happens to be smaller than the window.
-  if (
-    state.lastToolStatusAt !== 0 &&
-    now - state.lastToolStatusAt < throttleMs
-  ) {
+  const withinWindow =
+    state.lastToolStatusAt !== 0 && now - state.lastToolStatusAt < throttleMs
+
+  if (withinWindow) {
     return { send: false, state: { ...state, skipped: state.skipped + 1 } }
   }
+
+  // Past the window: emit a heartbeat. Quiet tools contribute the count but
+  // not their name, so a Bash-only turn still reports progress without
+  // broadcasting the command.
   return {
     send: true,
     skipped: state.skipped,
+    named: !QUIET_TOOLS.has(toolName),
     state: { lastToolStatusAt: now, skipped: 0 },
   }
 }
@@ -226,6 +248,7 @@ export function isChannelEcho(prompt: string): boolean {
 export function formatRelay(
   payload: HookPayload,
   skippedSinceLast = 0,
+  nameTool = true,
 ): {
   text: string
   markdown: boolean
@@ -258,10 +281,14 @@ export function formatRelay(
     }
 
     case 'PreToolUse': {
-      if (!payload.tool_name) return null
-      const others = skippedSinceLast > 0 ? `  (+${skippedSinceLast} 个)` : ''
+      // tool_input is deliberately omitted: it is the Bash command line, the
+      // Edit diff, the file being written. A progress ping must not carry the
+      // work itself into a chat other people are watching.
+      const total = skippedSinceLast + 1
+      const what =
+        nameTool && payload.tool_name ? `${payload.tool_name} · ` : ''
       return {
-        text: `⏳ ${payload.tool_name}  ${preview(payload.tool_input, 120)}${others}`,
+        text: `⏳ ${what}仍在工作（${total} 个工具）`,
         markdown: false,
         title: '执行中',
       }
@@ -292,12 +319,26 @@ export function formatRelay(
         title: '轮次中断',
       }
 
-    case 'SessionEnd':
+    case 'SessionStart': {
+      const where = payload.cwd ? basename(payload.cwd) : ''
       return {
-        text: `🔚 会话结束${payload.reason ? `（${payload.reason}）` : ''}`,
+        text: `▶️ 会话开始${where ? ` · ${where}` : ''}`,
+        markdown: false,
+        title: '会话开始',
+      }
+    }
+
+    case 'SessionEnd': {
+      // Name the project: with one robot per project you still end up watching
+      // several chats, and "会话结束" alone does not say which one stopped.
+      const where = payload.cwd ? basename(payload.cwd) : ''
+      const why = payload.reason ? `（${payload.reason}）` : ''
+      return {
+        text: `🔚 会话结束${where ? ` · ${where}` : ''}${why}`,
         markdown: false,
         title: '会话结束',
       }
+    }
 
     default:
       return null
@@ -325,6 +366,7 @@ export async function relayHookPayload(payload: HookPayload): Promise<void> {
   if (!account) return
 
   let skipped = 0
+  let named = true
   if (category === 'toolStatus') {
     const decision = shouldSendToolStatus(
       payload.tool_name ?? '',
@@ -334,9 +376,10 @@ export async function relayHookPayload(payload: HookPayload): Promise<void> {
     saveRelayState(decision.state)
     if (!decision.send) return
     skipped = decision.skipped
+    named = decision.named
   }
 
-  const rendered = formatRelay(payload, skipped)
+  const rendered = formatRelay(payload, skipped, named)
   if (!rendered) return
 
   const target = {

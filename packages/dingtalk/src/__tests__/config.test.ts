@@ -30,12 +30,24 @@ const PRIVATE = {
   mode: 'private' as const,
   boundUserId: 'staff-1',
   boundConversationId: 'conv-1',
-  relay: { prompts: true, replies: true, toolStatus: true, errors: true },
+  relay: {
+    prompts: true,
+    replies: true,
+    toolStatus: true,
+    errors: true,
+    session: true,
+  },
 }
 const GROUP = {
   mode: 'group' as const,
   boundConversationId: 'conv-g',
-  relay: { prompts: true, replies: true, toolStatus: true, errors: true },
+  relay: {
+    prompts: true,
+    replies: true,
+    toolStatus: true,
+    errors: true,
+    session: true,
+  },
 }
 
 describe('loadChannelConfig', () => {
@@ -65,6 +77,7 @@ describe('loadChannelConfig', () => {
       replies: true,
       toolStatus: true,
       errors: true,
+      session: true,
     })
   })
 

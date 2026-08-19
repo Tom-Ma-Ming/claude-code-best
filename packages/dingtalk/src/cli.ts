@@ -428,7 +428,13 @@ function runHooks(args: string[]): void {
 
 function runRelayToggle(args: string[]): void {
   const [state, key] = args
-  const keys = ['prompts', 'replies', 'toolStatus', 'errors'] as const
+  const keys = [
+    'prompts',
+    'replies',
+    'toolStatus',
+    'errors',
+    'session',
+  ] as const
   type RelayKey = (typeof keys)[number]
 
   if ((state !== 'on' && state !== 'off') || !key) {

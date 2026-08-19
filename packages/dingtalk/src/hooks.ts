@@ -16,6 +16,7 @@ export const RELAY_HOOK_EVENTS = [
   'PostToolUseFailure', // a tool blew up / timed out / was interrupted
   'Stop', // the turn's final answer
   'StopFailure', // the turn died on an API error
+  'SessionStart', // a session opened in some project
   'SessionEnd', // the session is over
 ] as const
 

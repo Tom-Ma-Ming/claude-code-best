@@ -203,7 +203,8 @@ ccb dingtalk hooks install
 | `prompts` | 你在终端输入的指令 | `UserPromptSubmit` |
 | `replies` | ccb 每轮的最终回复 | `Stop` |
 | `toolStatus` | 正在执行什么工具（**已节流**，见下）| `PreToolUse` |
-| `errors` | 工具报错/超时/中断、轮次因 API 错误中止、会话结束 | `PostToolUseFailure` `StopFailure` `SessionEnd` |
+| `errors` | 工具报错/超时/中断、轮次因 API 错误中止 | `PostToolUseFailure` `StopFailure` |
+| `session` | 会话开始 / 结束（带项目名）| `SessionStart` `SessionEnd` |
 
 ```bash
 ccb dingtalk relay off toolStatus   # 嫌吵就关掉
@@ -218,8 +219,23 @@ ccb dingtalk hooks uninstall
 
 `PreToolUse` 对**每个**工具调用都触发，而一轮里 agent 常常调用几十个工具——原样转发会把群刷爆。所以做了两层收敛：
 
-1. **高频只读工具不单独播报** —— `Read`、`Glob`、`Grep`、`TodoWrite` 这些只计数不发消息
-2. **45 秒内最多一条** —— 期间的调用折叠进下一条，显示成 `⏳ Bash ...  (+14 个)`
+1. **45 秒内最多一条** —— 期间的调用折叠进去，显示成 `⏳ 仍在工作（15 个工具）`
+2. **不发工具名，更不发参数** —— 详见下方
+
+### 工具状态不会泄露你在干什么
+
+早期版本会把 `tool_input` 一并推送，也就是把 **bash 命令原文、Edit 的改动内容**发进群里。围观者不该看到这些。
+
+现在的状态消息是纯心跳：只说「仍在工作 + 已执行多少个工具」，**不带任何参数**。承载工作内容的工具连名字都不报：
+
+| 不报名的工具 | 原因 |
+|---|---|
+| `Bash` `PowerShell` `BashOutput` | 命令行本身就是工作内容 |
+| `Edit` `MultiEdit` `Write` `NotebookEdit` | 改动内容 |
+| `Read` `Glob` `Grep` `TodoWrite` | 高频，且带文件路径 |
+| `ExecuteExtraTool` `SearchExtraTools` | ccb 的延迟工具加载机制，纯管道不是进度 |
+
+它们仍然计入总数，所以你能看到「15 个工具」这种进度，只是看不到内容。
 
 每次 hook 都是独立进程，所以窗口状态存在 `relay-state.json` 里而不是内存。
 

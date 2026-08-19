@@ -30,7 +30,8 @@ describe('relayCategory', () => {
     ['PostToolUse', 'toolStatus'],
     ['PostToolUseFailure', 'errors'],
     ['StopFailure', 'errors'],
-    ['SessionEnd', 'errors'],
+    ['SessionEnd', 'session'],
+    ['SessionStart', 'session'],
   ])('%s maps to %s', (event, category) => {
     expect(relayCategory(event)).toBe(category as never)
   })
@@ -192,14 +193,16 @@ describe('formatRelay', () => {
     ).toContain('clear')
   })
 
-  test('truncates a long tool input', () => {
+  test('never puts tool_input in the message', () => {
     const out = formatRelay({
       hook_event_name: 'PreToolUse',
       tool_name: 'Bash',
-      tool_input: { command: 'x'.repeat(500) },
+      tool_input: { command: 'rm -rf /secret/path && deploy --token=abc' },
     })
-    expect(out!.text.length).toBeLessThan(200)
-    expect(out?.text).toContain('…')
+    // The command line is the work itself; a progress ping must not carry it
+    // into a chat other people are watching.
+    expect(out?.text).not.toContain('rm -rf')
+    expect(out?.text).not.toContain('token')
   })
 })
 
@@ -239,45 +242,26 @@ describe('shouldSendToolStatus', () => {
     state = shouldSendToolStatus('Bash', 50_000, state, 45_000).state
     expect(state.skipped).toBe(0)
   })
-
-  test.each([
-    'Read',
-    'Glob',
-    'Grep',
-    'TodoWrite',
-  ])('never announces %s on its own', tool => {
-    expect(shouldSendToolStatus(tool, 999_999, fresh, 45_000).send).toBe(false)
-  })
-
-  test('a quiet tool still counts toward the coalesced total', () => {
-    const r = shouldSendToolStatus('Read', 999_999, fresh, 45_000)
-    expect(r.state.skipped).toBe(1)
-  })
-
-  test('a quiet tool does not consume the window', () => {
-    const quiet = shouldSendToolStatus('Read', 1_000, fresh, 45_000)
-    // Bash right after should still be allowed — Read must not have reset the clock
-    expect(shouldSendToolStatus('Bash', 1_100, quiet.state, 45_000).send).toBe(
-      true,
-    )
-  })
 })
 
-describe('formatRelay with coalesced count', () => {
-  test('mentions how many tools were folded in', () => {
+describe('formatRelay heartbeat', () => {
+  test('reports the total number of tools, not the command', () => {
     const out = formatRelay(
       { hook_event_name: 'PreToolUse', tool_name: 'Bash', tool_input: {} },
       14,
+      false,
     )
-    expect(out?.text).toContain('+14')
+    expect(out?.text).toContain('15')
+    expect(out?.text).not.toContain('Bash')
   })
 
-  test('omits the suffix when nothing was folded', () => {
+  test('names the tool when it carries no work content', () => {
     const out = formatRelay(
-      { hook_event_name: 'PreToolUse', tool_name: 'Bash', tool_input: {} },
+      { hook_event_name: 'PreToolUse', tool_name: 'WebSearch', tool_input: {} },
       0,
+      true,
     )
-    expect(out?.text).not.toContain('+')
+    expect(out?.text).toContain('WebSearch')
   })
 })
 

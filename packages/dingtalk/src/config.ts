@@ -21,8 +21,11 @@ export interface RelayConfig {
   replies: boolean
   /** A compact "running X" / "finished" line — not every tool's payload. */
   toolStatus: boolean
-  /** Failures and abnormal session ends. */
+  /** Tool failures and turns killed by an API error. */
   errors: boolean
+  /** Session started / ended. Separate from errors: quitting is not a failure,
+   *  and with several projects you need to know *which* one just stopped. */
+  session: boolean
 }
 
 export interface ChannelConfig {
@@ -41,6 +44,7 @@ export const DEFAULT_RELAY: RelayConfig = {
   replies: true,
   toolStatus: true,
   errors: true,
+  session: true,
 }
 
 /**
