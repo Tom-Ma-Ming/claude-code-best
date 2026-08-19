@@ -399,8 +399,26 @@ Or deny with: no abcde
 
 ### 图片和文件
 
-- **发给 ccb**：直接在钉钉里发图片/文件，ccb 会下载到临时目录并把路径告诉模型
-- **ccb 发给你**：模型调 `reply` 工具时带 `files` 参数即可
+**发给 ccb**：直接在钉钉里发图片、文件、语音、视频。ccb 下载到临时目录，把路径放在 channel 标签的 `attachment_path` 上：
+
+```xml
+<channel source="plugin:dingtalk:dingtalk" chat_id="..."
+         attachment_path="/tmp/ccb-dingtalk-media/1755-report.pdf"
+         attachment_type="file">
+```
+
+模型据此用 Read 打开——图片会直接看到画面，PDF 会被解析。支持的类型：
+
+| 你发的 | attachment_type |
+|---|---|
+| 图片 | `image` |
+| 文件（PDF/文档等）| `file` |
+| 语音 | `voice`（同时带钉钉的转写文字）|
+| 视频 | `video` |
+
+> 语音会额外附上钉钉服务端的转写结果，所以哪怕不听音频，模型也能读懂你说了什么。
+
+**ccb 发给你**：模型调 `reply` 时带 `files` 参数，传绝对路径。
 
 ---
 
@@ -420,6 +438,7 @@ Or deny with: no abcde
 | 群里 @它没反应 | 机器人没加进群，或应用没发布 |
 | 发文件失败 | 缺 `qyapi_media_upload` 权限 |
 | 模型说 reply 工具怎么传参都报错、反复重试、退不出会话 | `reply` 被当成延迟工具了。见下 |
+| 终端发完消息后，群里 @ 机器人没反应 | 多半是上一条的下游效应：模型卡在重试里，`isQueryActive` 一直为真，队列不消费。修复后重启会话 |
 
 看详细日志：
 

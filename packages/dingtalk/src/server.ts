@@ -102,7 +102,11 @@ export function createDingtalkMcpServer(version: string): Server {
         'not repeat what was said in one conversation into another — participants',
         'cannot see each other and may not be entitled to that content.',
         '',
-        'Use absolute paths for file attachments.',
+        'Images, files, audio and video sent to the robot are downloaded and',
+        'surfaced as attachment_path on the channel tag. Read that path to see',
+        'the content — the tag carries the location, not the content itself.',
+        '',
+        'Use absolute paths for file attachments you send back.',
       ].join('\n'),
     },
   )
