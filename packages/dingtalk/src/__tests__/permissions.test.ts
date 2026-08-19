@@ -2,9 +2,7 @@ import { afterEach, describe, expect, test } from 'bun:test'
 import {
   clearPermissionStateForTests,
   consumePendingPermission,
-  getActivePermissionChat,
   savePendingPermission,
-  setActivePermissionChat,
 } from '../permissions.js'
 import type { ChannelPermissionRequestParams } from '../permissions.js'
 
@@ -61,18 +59,5 @@ describe('savePendingPermission / consumePendingPermission', () => {
       'https://hook.test',
     )
     expect(saved.sessionWebhook).toBe('https://hook.test')
-  })
-})
-
-describe('active permission chat', () => {
-  test('starts unset', () => {
-    expect(getActivePermissionChat()).toBeNull()
-  })
-
-  test('tracks the most recent chat', () => {
-    setActivePermissionChat('conv-1', 'https://hook.test')
-    setActivePermissionChat('conv-2')
-    expect(getActivePermissionChat()?.chatId).toBe('conv-2')
-    expect(getActivePermissionChat()?.sessionWebhook).toBeUndefined()
   })
 })

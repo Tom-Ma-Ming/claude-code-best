@@ -1,4 +1,5 @@
 import { getAccessToken } from './api.js'
+import { acceptsInbound, isBound, loadChannelConfig } from './config.js'
 import { categoryForMsgType, downloadInboundFile } from './media.js'
 import {
   addPendingPairing,
@@ -6,10 +7,7 @@ import {
   isConversationBound,
   senderIdentity,
 } from './pairing.js'
-import {
-  consumePendingPermission,
-  setActivePermissionChat,
-} from './permissions.js'
+import { consumePendingPermission } from './permissions.js'
 import { sendText } from './send.js'
 import { ConversationType, InboundMsgType } from './types.js'
 import type { AccountData } from './accounts.js'
@@ -141,6 +139,35 @@ export async function processMessage(
     return
   }
 
+  // The channel binding is the outer gate: in private mode only the bound
+  // person's 1:1 chat drives the session, in group mode only the bound group.
+  // Everything downstream (pairing, permissions) operates inside that scope.
+  const channel = loadChannelConfig()
+  const verdict = acceptsInbound(channel, msg)
+  if (!verdict.ok) {
+    process.stderr.write(`[dingtalk] Rejected inbound: ${verdict.reason}\n`)
+    // An unbound channel is an operator error, not a stranger knocking — say so
+    // in the chat so it is discoverable without reading stderr.
+    if (!isBound(channel) && msg.sessionWebhook) {
+      try {
+        await sendText({
+          account: ctx.account,
+          target: {
+            chatId,
+            conversationType: msg.conversationType || ConversationType.SINGLE,
+            sessionWebhook: msg.sessionWebhook,
+            senderId: msg.senderStaffId || msg.senderId,
+          },
+          text: 'This ccb channel is not bound yet. Run `ccb dingtalk bind` on the machine running ccb, then send this message again.',
+          signal: ctx.signal,
+        })
+      } catch {
+        // best-effort notice
+      }
+    }
+    return
+  }
+
   // senderStaffId (org userId) is absent for external contacts and for members
   // of other orgs in a shared group — those fall back to the opaque senderId,
   // kept in a separate namespace so the two can never collide.
@@ -198,8 +225,6 @@ export async function processMessage(
     }
     return
   }
-
-  setActivePermissionChat(chatId, msg.sessionWebhook)
 
   const rawText = extractText(msg)
   const text =

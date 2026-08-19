@@ -56,12 +56,9 @@ export type { AccessConfig } from './pairing.js'
 export {
   clearPermissionStateForTests,
   consumePendingPermission,
-  getActivePermissionChat,
   savePendingPermission,
-  setActivePermissionChat,
 } from './permissions.js'
 export type {
-  ActivePermissionChat,
   ChannelPermissionRequestParams,
   PendingPermissionRequest,
 } from './permissions.js'

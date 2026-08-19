@@ -10,6 +10,13 @@ import {
   saveAccount,
 } from './accounts.js'
 import { getAccessToken } from './api.js'
+import { applyBinding, waitForFirstMessage } from './bind.js'
+import {
+  isBound,
+  loadChannelConfig,
+  saveChannelConfig,
+  type ChannelMode,
+} from './config.js'
 import {
   confirmPairing,
   loadAccessConfig,
@@ -26,6 +33,10 @@ function printUsage(): void {
       '  ccb dingtalk login              Enter AppKey / AppSecret / RobotCode',
       '  ccb dingtalk login clear        Forget stored credentials',
       '  ccb dingtalk status             Show what is configured',
+      '  ccb dingtalk bind               Bind this session to a person or group',
+      '  ccb dingtalk bind --group       Force group mode',
+      '  ccb dingtalk bind --private     Force private mode',
+      '  ccb dingtalk unbind             Forget the binding',
       '  ccb dingtalk profiles           List stored credential profiles',
       '  ccb dingtalk access pair <code> Approve a pairing code',
       '  ccb dingtalk access list        List paired sender IDs',
@@ -202,6 +213,84 @@ async function runLogin(clear = false, profile?: string): Promise<void> {
   )
 }
 
+async function runBind(modeOverride?: ChannelMode): Promise<void> {
+  const profile = activeProfile()
+
+  process.stdout.write(
+    [
+      `Binding this ccb channel${profileLabel(profile)}.`,
+      '',
+      'DingTalk publishes no link that opens an internal-app robot chat, so',
+      'there is nothing to scan — find the robot by name instead:',
+      '',
+      '  · Private mode: message the robot directly.',
+      '  · Group mode:   add the robot to the group, then @ it there.',
+      '',
+      'Waiting for your message (3 min)...',
+      '',
+    ].join('\n'),
+  )
+
+  let result
+  try {
+    result = await waitForFirstMessage({})
+  } catch (error) {
+    process.stderr.write(
+      `${error instanceof Error ? error.message : String(error)}\n`,
+    )
+    process.exit(1)
+  }
+
+  if (!result) {
+    process.stderr.write(
+      'Timed out with no message received.\n' +
+        'Check that the app is published and its 消息接收模式 is Stream.\n',
+    )
+    process.exit(1)
+  }
+
+  const { mode, warning } = applyBinding(result, profile, modeOverride)
+
+  const where =
+    mode === 'group'
+      ? `group ${result.conversationTitle ? `"${result.conversationTitle}"` : result.conversationId}`
+      : `private chat with ${result.senderNick || result.senderStaffId || 'unknown'}`
+
+  process.stdout.write(
+    [
+      `Bound to ${where}.`,
+      `  Mode:           ${mode}`,
+      `  Conversation:   ${result.conversationId}`,
+      result.senderStaffId ? `  User:           ${result.senderStaffId}` : '',
+      '',
+      mode === 'private'
+        ? 'Only this person, in this conversation, can drive the session.'
+        : 'Only this group can drive the session; pairing still governs who inside it may.',
+    ]
+      .filter(Boolean)
+      .join('\n') + '\n',
+  )
+
+  if (warning) {
+    process.stderr.write(`\nWarning: ${warning}\n`)
+  }
+}
+
+function runUnbind(): void {
+  const profile = activeProfile()
+  const config = loadChannelConfig(profile)
+  saveChannelConfig(
+    {
+      ...config,
+      boundUserId: undefined,
+      boundUserNick: undefined,
+      boundConversationId: undefined,
+    },
+    profile,
+  )
+  process.stdout.write(`Binding cleared${profileLabel(profile)}.\n`)
+}
+
 function runProfiles(): void {
   const names = listProfiles()
   const active = activeProfile()
@@ -236,6 +325,7 @@ function runStatus(): void {
     return
   }
   const access = loadAccessConfig()
+  const channel = loadChannelConfig()
   process.stdout.write(
     [
       'DingTalk channel:',
@@ -244,6 +334,17 @@ function runStatus(): void {
       `  RobotCode: ${account.robotCode}`,
       `  Source:    ${account.savedAt === 'env' ? 'environment variables' : account.savedAt}`,
       `  State dir: ${getStateDir()}`,
+      '',
+      `Mode:          ${channel.mode}`,
+      isBound(channel)
+        ? `Bound to:      ${channel.mode === 'private' ? `${channel.boundUserNick || channel.boundUserId} (${channel.boundConversationId})` : channel.boundConversationId}`
+        : 'Bound to:      (not bound — run `ccb dingtalk bind`)',
+      `Relay:         ${
+        Object.entries(channel.relay)
+          .filter(([, on]) => on)
+          .map(([k]) => k)
+          .join(', ') || '(all off)'
+      }`,
       '',
       `Access policy: ${access.policy}`,
       access.allowFrom.length > 0
@@ -357,6 +458,18 @@ export async function handleDingtalkCli(
       return
     case 'status':
       runStatus()
+      return
+    case 'bind': {
+      const mode: ChannelMode | undefined = rest.includes('--group')
+        ? 'group'
+        : rest.includes('--private')
+          ? 'private'
+          : undefined
+      await runBind(mode)
+      return
+    }
+    case 'unbind':
+      runUnbind()
       return
     case 'profiles':
       runProfiles()

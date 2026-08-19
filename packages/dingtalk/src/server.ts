@@ -11,10 +11,8 @@ import {
   processMessage,
   type PermissionResponse,
 } from './monitor.js'
-import {
-  getActivePermissionChat,
-  savePendingPermission,
-} from './permissions.js'
+import { loadChannelConfig, outboundTarget } from './config.js'
+import { savePendingPermission } from './permissions.js'
 import { sendMarkdown, sendMediaFile, sendText } from './send.js'
 import { runStreamClient } from './stream.js'
 import { ConversationType } from './types.js'
@@ -242,12 +240,16 @@ export async function runDingtalkMcpServer(
   const transport = new StdioServerTransport()
 
   deps.registerPermissionHandler(server, async request => {
-    const requestedChatId = request.channel_context?.chat_id
-    const chatId = requestedChatId ?? getActivePermissionChat()?.chatId
+    // Route to the request's own conversation when the caller supplied one,
+    // otherwise to the bound channel. Never to "whoever messaged last" — that
+    // guess hands an approval prompt for someone else's dangerous tool call to
+    // an unrelated person.
+    const chatId =
+      request.channel_context?.chat_id ?? outboundTarget(loadChannelConfig())
 
     if (!chatId) {
       deps.logForDebugging(
-        `[DingTalk MCP] No active chat available for permission request ${request.request_id}`,
+        `[DingTalk MCP] No bound conversation for permission request ${request.request_id} — run \`ccb dingtalk bind\``,
       )
       return
     }
