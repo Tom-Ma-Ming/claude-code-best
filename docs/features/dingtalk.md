@@ -419,6 +419,7 @@ Or deny with: no abcde
 | `[dingtalk] Stream error: ...` | AppKey/AppSecret 错，或消息接收模式没选 Stream |
 | 群里 @它没反应 | 机器人没加进群，或应用没发布 |
 | 发文件失败 | 缺 `qyapi_media_upload` 权限 |
+| 模型说 reply 工具怎么传参都报错、反复重试、退不出会话 | `reply` 被当成延迟工具了。见下 |
 
 看详细日志：
 
@@ -427,6 +428,24 @@ ccb --channels plugin:dingtalk@builtin --debug mcp
 ```
 
 ---
+
+### 为什么 reply 必须标记 alwaysLoad
+
+ccb 的 `isDeferredTool()` 是白名单制：不在 `CORE_TOOLS` 里的 MCP 工具**一律延迟加载**，只暴露名字、不暴露参数 schema。
+
+对一般工具这没问题——模型可以先 `SearchExtraTools` 再用。但 `reply` 是**回复入站消息的唯一途径**：消息进来了，模型却调不动回复工具，于是反复重试、会话卡住退不出。
+
+所以渠道工具必须显式声明：
+
+```ts
+{
+  name: 'reply',
+  _meta: { 'anthropic/alwaysLoad': true },
+  ...
+}
+```
+
+`src/services/mcp/client.ts` 读这个字段。有回归测试锁住，新增渠道工具时别忘了。
 
 ## 工作原理
 

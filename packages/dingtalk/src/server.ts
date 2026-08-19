@@ -111,6 +111,11 @@ export function createDingtalkMcpServer(version: string): Server {
     tools: [
       {
         name: 'reply',
+        // Without this the tool is deferred: isDeferredTool() treats every MCP
+        // tool outside CORE_TOOLS as load-on-demand, so its schema never
+        // reaches the model and every call fails validation. `reply` is the
+        // only way to answer an inbound message — it must always be loaded.
+        _meta: { 'anthropic/alwaysLoad': true },
         description:
           'Reply to a DingTalk message. Pass the chat_id from the channel tag.',
         inputSchema: {
