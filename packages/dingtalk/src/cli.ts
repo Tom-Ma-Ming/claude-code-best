@@ -14,7 +14,9 @@ import {
 import { getAccessToken } from './api.js'
 import { applyBinding, verifyBinding, waitForFirstMessage } from './bind.js'
 import {
+  grantChannelToolPermissions,
   installRelayHooks,
+  missingChannelToolPermissions,
   relayHooksInstalled,
   uninstallRelayHooks,
 } from './hooks.js'
@@ -355,6 +357,16 @@ async function runBind(modeOverride?: ChannelMode): Promise<void> {
     process.stderr.write(`\nWarning: ${warning}\n`)
   }
 
+  // The channel cannot answer anything without permission to call its own
+  // reply tool, and the prompt for it appears in a terminal the DingTalk user
+  // is not looking at — where it also blocks the command queue.
+  const granted = grantChannelToolPermissions(settingsPathForHooks())
+  if (granted.length > 0) {
+    process.stdout.write(
+      `\nGranted the channel permission to reply (${granted.length} tool(s) in ${settingsPathForHooks()}).\n`,
+    )
+  }
+
   // Prove the binding before declaring success. Inbound keeps working via the
   // session webhook even when proactive sends are refused, so an unverified
   // binding fails silently later instead of loudly now.
@@ -531,6 +543,15 @@ async function runDoctor(): Promise<void> {
     process.exit(1)
   }
   check('binding', true, `${config.mode} → ${config.boundConversationId}`)
+
+  const missing = missingChannelToolPermissions(settingsPathForHooks())
+  check(
+    'tool permissions',
+    missing.length === 0,
+    missing.length > 0
+      ? `${missing.join(', ')} not allowed — the first reply will block on a prompt. Run \`ccb dingtalk bind\` or grant them in ${settingsPathForHooks()}`
+      : '',
+  )
 
   // The delivery check is the point of this command: everything above can pass
   // while the robot is simply not in the conversation it is bound to.

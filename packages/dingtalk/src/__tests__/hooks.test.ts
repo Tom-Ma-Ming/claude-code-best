@@ -4,6 +4,9 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
   buildRelayHooks,
+  CHANNEL_TOOL_PERMISSIONS,
+  grantChannelToolPermissions,
+  missingChannelToolPermissions,
   HOOK_MARKER,
   installRelayHooks,
   RELAY_HOOK_EVENTS,
@@ -123,5 +126,60 @@ describe('relayHooksInstalled', () => {
   test('is false for malformed JSON rather than throwing', () => {
     writeFileSync(settings, 'nope')
     expect(relayHooksInstalled(settings)).toBe(false)
+  })
+})
+
+describe('channel tool permissions', () => {
+  test('grants both reply tools on a fresh settings file', () => {
+    const added = grantChannelToolPermissions(settings)
+    expect(added).toEqual([...CHANNEL_TOOL_PERMISSIONS])
+    expect(read().permissions.allow).toEqual([...CHANNEL_TOOL_PERMISSIONS])
+  })
+
+  test('is idempotent', () => {
+    grantChannelToolPermissions(settings)
+    expect(grantChannelToolPermissions(settings)).toEqual([])
+    expect(read().permissions.allow).toHaveLength(
+      CHANNEL_TOOL_PERMISSIONS.length,
+    )
+  })
+
+  test('preserves permissions the user already had', () => {
+    writeFileSync(
+      settings,
+      JSON.stringify({
+        permissions: { allow: ['Bash(git:*)'], deny: ['Read(./secrets/**)'] },
+      }),
+    )
+    grantChannelToolPermissions(settings)
+    const p = read().permissions
+    expect(p.allow).toContain('Bash(git:*)')
+    expect(p.deny).toEqual(['Read(./secrets/**)'])
+  })
+
+  test('preserves unrelated settings', () => {
+    writeFileSync(settings, JSON.stringify({ model: 'opus' }))
+    grantChannelToolPermissions(settings)
+    expect(read().model).toBe('opus')
+  })
+
+  test('missingChannelToolPermissions reports what is not granted', () => {
+    expect(missingChannelToolPermissions(settings)).toEqual([
+      ...CHANNEL_TOOL_PERMISSIONS,
+    ])
+    grantChannelToolPermissions(settings)
+    expect(missingChannelToolPermissions(settings)).toEqual([])
+  })
+
+  test('treats an unreadable settings file as fully un-granted', () => {
+    writeFileSync(settings, 'not json')
+    expect(missingChannelToolPermissions(settings)).toEqual([
+      ...CHANNEL_TOOL_PERMISSIONS,
+    ])
+  })
+
+  test('hooks install grants them too', () => {
+    installRelayHooks(settings)
+    expect(missingChannelToolPermissions(settings)).toEqual([])
   })
 })
