@@ -12,16 +12,19 @@ import {
   saveAccount,
 } from './accounts.js'
 import { getAccessToken } from './api.js'
-import { applyBinding, waitForFirstMessage } from './bind.js'
+import { applyBinding, verifyBinding, waitForFirstMessage } from './bind.js'
 import {
   installRelayHooks,
   relayHooksInstalled,
   uninstallRelayHooks,
 } from './hooks.js'
 import { relayHookPayload, type HookPayload } from './relay.js'
+import { sendText } from './send.js'
+import { ConversationType } from './types.js'
 import {
   isBound,
   loadChannelConfig,
+  relayTargets,
   saveChannelConfig,
   type ChannelMode,
 } from './config.js'
@@ -43,6 +46,7 @@ function printUsage(): void {
       '                                  Non-interactive; add --force to replace',
       '  ccb dingtalk login clear        Forget stored credentials',
       '  ccb dingtalk status             Show what is configured',
+      '  ccb dingtalk doctor             Check credentials and delivery',
       '  ccb dingtalk bind               Bind this session to a person or group',
       '  ccb dingtalk bind --group       Force group mode',
       '  ccb dingtalk bind --private     Force private mode',
@@ -350,6 +354,25 @@ async function runBind(modeOverride?: ChannelMode): Promise<void> {
   if (warning) {
     process.stderr.write(`\nWarning: ${warning}\n`)
   }
+
+  // Prove the binding before declaring success. Inbound keeps working via the
+  // session webhook even when proactive sends are refused, so an unverified
+  // binding fails silently later instead of loudly now.
+  process.stdout.write('\nVerifying the binding...\n')
+  const check = await verifyBinding(result, mode)
+  if (check.ok) {
+    process.stdout.write('Confirmed — a test message was delivered.\n')
+  } else {
+    process.stderr.write(
+      [
+        '',
+        'Bound, but a test message could NOT be delivered:',
+        check.reason,
+        '',
+        'Inbound will still work, but relayed messages will silently fail.',
+      ].join('\n') + '\n',
+    )
+  }
 }
 
 function runUnbind(): void {
@@ -460,6 +483,83 @@ function runRelayToggle(args: string[]): void {
   config.relay[key as RelayKey] = state === 'on'
   saveChannelConfig(config, profile)
   process.stdout.write(`relay.${key} = ${state === 'on'}\n`)
+}
+
+async function runDoctor(): Promise<void> {
+  const profile = activeProfile()
+  const account = loadAccount(profile)
+  const config = loadChannelConfig(profile)
+  const lines: string[] = []
+  let failed = false
+
+  const check = (label: string, ok: boolean, detail = ''): void => {
+    lines.push(
+      `${ok ? '  ok  ' : '  FAIL'} ${label}${detail ? ` — ${detail}` : ''}`,
+    )
+    if (!ok) failed = true
+  }
+
+  lines.push(`DingTalk channel${profileLabel(profile)}:`)
+
+  if (!account) {
+    check('credentials', false, 'not configured — run `ccb dingtalk login`')
+    process.stdout.write(lines.join('\n') + '\n')
+    process.exit(1)
+  }
+  check('credentials', true, `AppKey ${account.appKey}`)
+
+  try {
+    await getAccessToken({
+      appKey: account.appKey,
+      appSecret: account.appSecret,
+      baseUrl: account.baseUrl,
+    })
+    check('access token', true)
+  } catch (error) {
+    check(
+      'access token',
+      false,
+      error instanceof Error ? error.message : String(error),
+    )
+    process.stdout.write(lines.join('\n') + '\n')
+    process.exit(1)
+  }
+
+  if (!isBound(config)) {
+    check('binding', false, 'not bound — run `ccb dingtalk bind`')
+    process.stdout.write(lines.join('\n') + '\n')
+    process.exit(1)
+  }
+  check('binding', true, `${config.mode} → ${config.boundConversationId}`)
+
+  // The delivery check is the point of this command: everything above can pass
+  // while the robot is simply not in the conversation it is bound to.
+  for (const chatId of relayTargets(config)) {
+    try {
+      await sendText({
+        account,
+        target: {
+          chatId,
+          conversationType:
+            chatId === config.boundConversationId && config.mode === 'private'
+              ? ConversationType.SINGLE
+              : ConversationType.GROUP,
+          senderId: config.boundUserId,
+        },
+        text: '🩺 ccb dingtalk doctor — delivery check',
+      })
+      check(`delivery to ${chatId}`, true)
+    } catch (error) {
+      check(
+        `delivery to ${chatId}`,
+        false,
+        error instanceof Error ? error.message : String(error),
+      )
+    }
+  }
+
+  process.stdout.write(lines.join('\n') + '\n')
+  if (failed) process.exit(1)
 }
 
 function runMirror(args: string[]): void {
@@ -708,6 +808,9 @@ export async function handleDingtalkCli(
       return
     case 'status':
       runStatus()
+      return
+    case 'doctor':
+      await runDoctor()
       return
     case 'bind': {
       const mode: ChannelMode | undefined = rest.includes('--group')

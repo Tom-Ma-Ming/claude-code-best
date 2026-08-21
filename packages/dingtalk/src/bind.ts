@@ -4,6 +4,7 @@ import {
   saveChannelConfig,
   type ChannelMode,
 } from './config.js'
+import { sendText } from './send.js'
 import { runStreamClient } from './stream.js'
 import { ConversationType } from './types.js'
 import type { DingtalkMessage } from './types.js'
@@ -76,6 +77,40 @@ export async function waitForFirstMessage(params: {
  * two-person group as `group`, so inferring is more reliable than trusting the
  * operator's mental model of which chat they used.
  */
+/**
+ * Confirm the binding by actually sending to it.
+ *
+ * Recording a binding that cannot be delivered to is worse than failing: the
+ * inbound path keeps working (replies ride the session webhook), so the break
+ * only shows up later as relayed messages silently vanishing.
+ */
+export async function verifyBinding(
+  result: BindResult,
+  mode: ChannelMode,
+): Promise<{ ok: true } | { ok: false; reason: string }> {
+  const account = loadAccount()
+  if (!account) return { ok: false, reason: 'no credentials' }
+
+  try {
+    await sendText({
+      account,
+      target: {
+        chatId: result.conversationId,
+        conversationType:
+          mode === 'group' ? ConversationType.GROUP : ConversationType.SINGLE,
+        senderId: result.senderStaffId,
+      },
+      text: '✅ ccb 已绑定到这个会话。',
+    })
+    return { ok: true }
+  } catch (error) {
+    return {
+      ok: false,
+      reason: error instanceof Error ? error.message : String(error),
+    }
+  }
+}
+
 export function applyBinding(
   result: BindResult,
   profile?: string,

@@ -10,6 +10,43 @@ import { ROBOT_MESSAGE_TOPIC } from './types.js'
 const DEFAULT_TIMEOUT_MS = 30_000
 
 /**
+ * Turn DingTalk's error bodies into something a user can act on.
+ *
+ * `robot 不存在` is the worst offender: it is returned when the robot simply
+ * cannot post to *that conversation* — the robotCode may be perfectly valid —
+ * so taking it at face value sends people to re-check a credential that was
+ * never wrong.
+ */
+export function explainDingtalkError(status: number, body: string): string {
+  const raw = `HTTP ${status}${body ? `: ${body}` : ''}`
+
+  if (body.includes('robot 不存在') || body.includes('resource.not.found')) {
+    return [
+      'DingTalk refused the send: the robot cannot post to that conversation.',
+      'Despite the wording, this is usually NOT a bad robotCode — check that:',
+      '  · the robot is still a member of that group, and',
+      '  · the binding points at the right conversation (`ccb dingtalk status`).',
+      `Re-bind with \`ccb dingtalk bind\` from the conversation you want.`,
+      `(${raw})`,
+    ].join('\n')
+  }
+
+  if (body.includes('invalidClientIdOrSecret')) {
+    return `AppKey or AppSecret is wrong. Re-run \`ccb dingtalk login\`. (${raw})`
+  }
+
+  if (body.includes('Forbidden.AccessDenied') || body.includes('permission')) {
+    return [
+      'DingTalk denied the call — the app is probably missing a permission.',
+      'Check 权限管理: qyapi_robot_sendmsg is required, qyapi_media_upload for files.',
+      `(${raw})`,
+    ].join('\n')
+  }
+
+  return raw
+}
+
+/**
  * Access tokens are valid for 7200s. DingTalk rate-limits the token endpoint
  * hard, so cache per appKey and refresh a minute early rather than on expiry.
  */
@@ -55,9 +92,7 @@ async function request<T>(
     if (!response.ok) {
       // DingTalk puts the useful part in the body, not the status line.
       const body = await response.text().catch(() => '')
-      throw new Error(
-        `HTTP ${response.status} ${response.statusText}${body ? `: ${body}` : ''}`,
-      )
+      throw new Error(explainDingtalkError(response.status, body))
     }
     return (await response.json()) as T
   } finally {

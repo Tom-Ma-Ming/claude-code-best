@@ -6,6 +6,7 @@ import {
   loadChannelConfig,
   relayTargets,
 } from './config.js'
+import { loadPersistedWebhook } from './monitor.js'
 import { sendMarkdown, sendText } from './send.js'
 import { ConversationType } from './types.js'
 import type { RelayConfig } from './config.js'
@@ -388,6 +389,10 @@ export async function relayHookPayload(payload: HookPayload): Promise<void> {
   for (const chatId of targets) {
     const target = {
       chatId,
+      // Prefer the persisted session webhook: it needs no access token and no
+      // robotCode, so the relay keeps working even when the robotCode is wrong
+      // or the app lacks the proactive-send permission.
+      sessionWebhook: loadPersistedWebhook(chatId),
       conversationType:
         chatId === config.boundConversationId && config.mode === 'private'
           ? ConversationType.SINGLE

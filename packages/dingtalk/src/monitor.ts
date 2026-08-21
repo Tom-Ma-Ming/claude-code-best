@@ -1,3 +1,6 @@
+import { existsSync, readFileSync, writeFileSync } from 'node:fs'
+import { join } from 'node:path'
+import { getStateDir, stateDirPath } from './accounts.js'
 import { getAccessToken } from './api.js'
 import { handleChannelCommand } from './commands.js'
 import {
@@ -47,6 +50,47 @@ const sessionWebhooks = new Map<
   { webhook: string; expiresAt: number }
 >()
 
+/**
+ * Webhooks are also written to disk.
+ *
+ * `ccb dingtalk notify` runs as its own process per hook, so it cannot see
+ * this map. Without the file the relay can only use the proactive robot API,
+ * which needs a correct robotCode — and a wrong one makes every relayed
+ * message fail with nothing but a DingTalk error in stderr.
+ */
+function webhookStorePath(): string {
+  return join(stateDirPath(), 'session-webhooks.json')
+}
+
+function persistWebhooks(): void {
+  try {
+    getStateDir()
+    const out: Record<string, { webhook: string; expiresAt: number }> = {}
+    for (const [k, v] of sessionWebhooks) out[k] = v
+    writeFileSync(webhookStorePath(), JSON.stringify(out), 'utf-8')
+  } catch {
+    // Best-effort: losing the cache only costs us the webhook shortcut.
+  }
+}
+
+/** Read a webhook persisted by the serve process. Used by the relay. */
+export function loadPersistedWebhook(chatId: string): string | undefined {
+  try {
+    const path = webhookStorePath()
+    if (!existsSync(path)) return undefined
+    const all = JSON.parse(readFileSync(path, 'utf-8')) as Record<
+      string,
+      { webhook: string; expiresAt: number }
+    >
+    const entry = all[chatId]
+    if (!entry) return undefined
+    if (entry.expiresAt > 0 && entry.expiresAt <= Date.now()) return undefined
+    return entry.webhook
+  } catch {
+    return undefined
+  }
+}
+
 export function getSessionWebhook(chatId: string): string | undefined {
   const entry = sessionWebhooks.get(chatId)
   if (!entry) return undefined
@@ -63,6 +107,7 @@ export function rememberSessionWebhook(
   expiresAt = 0,
 ): void {
   sessionWebhooks.set(chatId, { webhook, expiresAt })
+  persistWebhooks()
 }
 
 export function clearMonitorStateForTests(): void {
