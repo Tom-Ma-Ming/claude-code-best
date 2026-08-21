@@ -232,3 +232,67 @@ describe('config migration', () => {
     expect(relay.replies).toBe(true)
   })
 })
+
+describe('interactive group mode', () => {
+  const INTERACTIVE = {
+    ...PRIVATE,
+    mirrorConversations: ['group-a'],
+    groupMode: 'interactive' as const,
+  }
+  const READONLY = {
+    ...PRIVATE,
+    mirrorConversations: ['group-a'],
+    groupMode: 'mirror' as const,
+  }
+
+  test('mirror mode keeps spectator groups read-only', () => {
+    expect(isMirrorOnly(READONLY, 'group-a')).toBe(true)
+    expect(
+      acceptsInbound(READONLY, {
+        senderStaffId: 'staff-1',
+        conversationId: 'group-a',
+      }).ok,
+    ).toBe(false)
+  })
+
+  test('interactive mode lets a spectator group drive', () => {
+    expect(isMirrorOnly(INTERACTIVE, 'group-a')).toBe(false)
+    expect(
+      acceptsInbound(INTERACTIVE, {
+        senderStaffId: 'staff-1',
+        conversationId: 'group-a',
+      }),
+    ).toEqual({ ok: true })
+  })
+
+  test('interactive mode does not widen who is trusted, only where', () => {
+    // The bound-user check is skipped for an interactive group precisely
+    // because pairing governs who may speak there.
+    expect(
+      acceptsInbound(INTERACTIVE, {
+        senderStaffId: 'someone-else',
+        conversationId: 'group-a',
+      }),
+    ).toEqual({ ok: true })
+    // ...but an unlisted conversation is still refused outright.
+    expect(
+      acceptsInbound(INTERACTIVE, {
+        senderStaffId: 'staff-1',
+        conversationId: 'other-group',
+      }).ok,
+    ).toBe(false)
+  })
+
+  test('the bound 1:1 still requires the bound user', () => {
+    expect(
+      acceptsInbound(INTERACTIVE, {
+        senderStaffId: 'someone-else',
+        conversationId: 'conv-1',
+      }).ok,
+    ).toBe(false)
+  })
+
+  test('defaults to read-only', () => {
+    expect(loadChannelConfig().groupMode).toBe('mirror')
+  })
+})

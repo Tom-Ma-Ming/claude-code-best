@@ -50,6 +50,7 @@ function printUsage(): void {
       '  ccb dingtalk mirror add <cid>   Add a spectator group (read-only)',
       '  ccb dingtalk mirror rm <cid>    Remove one',
       '  ccb dingtalk mirror list        List spectator groups',
+      '  ccb dingtalk mirror mode <m>    mirror (read-only) | interactive',
       '  ccb dingtalk hooks install      Mirror this terminal into DingTalk',
       '  ccb dingtalk hooks uninstall    Stop mirroring',
       '  ccb dingtalk hooks status       Show whether mirroring is wired up',
@@ -497,6 +498,29 @@ function runMirror(args: string[]): void {
     return
   }
 
+  if (action === 'mode') {
+    if (value !== 'mirror' && value !== 'interactive') {
+      process.stdout.write(
+        [
+          `Spectator groups are currently: ${config.groupMode ?? 'mirror'}`,
+          '',
+          '  mirror       read-only — the group watches, nothing it says reaches the agent',
+          '  interactive  paired users may also drive the session from the group',
+          '',
+          'Set with: ccb dingtalk mirror mode <mirror|interactive>',
+        ].join('\n') + '\n',
+      )
+      return
+    }
+    saveChannelConfig({ ...config, groupMode: value }, profile)
+    process.stdout.write(
+      value === 'interactive'
+        ? 'Spectator groups are now interactive — paired users may drive the session from them.\n'
+        : 'Spectator groups are now read-only.\n',
+    )
+    return
+  }
+
   if (action === 'rm' && value) {
     const next = current.filter(c => c !== value)
     if (next.length === current.length) {
@@ -560,7 +584,7 @@ function runStatus(): void {
       isBound(channel)
         ? `Bound to:      ${channel.mode === 'private' ? `${channel.boundUserNick || channel.boundUserId} (${channel.boundConversationId})` : channel.boundConversationId}`
         : 'Bound to:      (not bound — run `ccb dingtalk bind`)',
-      `Spectators:    ${(channel.mirrorConversations ?? []).length} group(s)`,
+      `Spectators:    ${(channel.mirrorConversations ?? []).length} group(s), ${channel.groupMode ?? 'mirror'}`,
       `Relay:         ${
         Object.entries(channel.relay)
           .filter(([, on]) => on)

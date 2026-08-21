@@ -200,6 +200,35 @@ ccb dingtalk mirror rm cidXXXXXXXX==
 
 > 拿群的 conversationId：把机器人拉进群 @ 一下，`--debug mcp` 的日志里会打出 `chat_id`。
 
+### 让围观群也能说话
+
+默认围观群是**只读**的。想让群里的人也能指挥：
+
+```bash
+ccb dingtalk mirror mode interactive
+ccb dingtalk mirror mode mirror        # 改回只读
+ccb dingtalk mirror mode               # 查看当前
+```
+
+`interactive` 只放宽**在哪儿说**，不放宽**谁可信**——群里的人仍须通过配对才能驱动会话。绑定的私聊那一路不受影响，依旧只认绑定者本人。
+
+### 回复会 @ 提问者
+
+群里没有 Slack 那种 thread，几个人同时问的话，不点名的回答就成了猜谜。所以群聊里的回复会 @ 最近的提问者（私聊不加，那里没有歧义）。
+
+## agent 主动发图：send_image
+
+markdown 带不了本地文件，聊天窗口也打不开路径，所以跑起来截的图本来是出不去的。配好机器人后 agent 会多一个 `send_image` 工具：
+
+```
+你：打开首页看看渲染对不对
+ccb：（截图，然后调用 send_image 把图发给你）
+```
+
+不传 `chat_id` 就发给绑定会话 + 所有围观群；跑在终端里的任务没有提问者，图就只进围观群。两边都没有时它会明说「没地方可发」，而不是假装成功。
+
+它**只发已经存在的文件**，自己不截图——配合你原有的截图 skill 用。图片走主动发送接口（session webhook 没有图片消息类型）。
+
 ## 聊天命令
 
 有些问题不必打扰 agent，机器人自己就能答——而且 **agent 忙的时候也能用**：

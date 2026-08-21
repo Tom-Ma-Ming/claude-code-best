@@ -37,6 +37,13 @@ export function splitText(text: string, limit = MAX_TEXT_LENGTH): string[] {
 export interface SendTarget {
   chatId: string
   conversationType: string
+  /**
+   * Staff id to @-mention in a group reply.
+   *
+   * DingTalk group robots have no threading, so with several people asking at
+   * once an unaddressed answer is guesswork about who it belongs to.
+   */
+  atUserId?: string
   /** Live session webhook, when the send is a reply to a recent message. */
   sessionWebhook?: string
   /** Staff ID — needed for token-based 1:1 sends. */
@@ -74,7 +81,12 @@ async function deliver(params: {
     try {
       const resp = await sendViaWebhook({
         webhook: target.sessionWebhook,
-        body: webhookBody,
+        body: target.atUserId
+          ? {
+              ...webhookBody,
+              at: { atUserIds: [target.atUserId], isAtAll: false },
+            }
+          : webhookBody,
         signal,
       })
       if (!resp.errcode) return
@@ -179,6 +191,44 @@ export async function sendMediaFile(params: {
     userIds: isGroup ? undefined : target.senderId ? [target.senderId] : [],
     msgKey,
     msgParam,
+    baseUrl: account.baseUrl,
+    signal,
+  })
+}
+
+/**
+ * Send an image that already exists on disk.
+ *
+ * Always takes the proactive robot path — a session webhook has no image
+ * message type, so there is nothing to fall back from.
+ */
+export async function sendImage(params: {
+  account: AccountData
+  target: SendTarget
+  filePath: string
+  signal?: AbortSignal
+}): Promise<void> {
+  const { account, target, filePath, signal } = params
+  const fileName = basename(filePath)
+  const data = new Uint8Array(await readFile(filePath))
+  const token = await tokenFor(account)
+
+  const mediaId = await uploadMedia({
+    token,
+    type: 'image',
+    fileName,
+    data,
+    signal,
+  })
+
+  const isGroup = target.conversationType === ConversationType.GROUP
+  await sendToConversation({
+    token,
+    robotCode: account.robotCode,
+    openConversationId: isGroup ? target.chatId : undefined,
+    userIds: isGroup ? undefined : target.senderId ? [target.senderId] : [],
+    msgKey: OutboundMsgKey.IMAGE,
+    msgParam: { photoURL: mediaId },
     baseUrl: account.baseUrl,
     signal,
   })

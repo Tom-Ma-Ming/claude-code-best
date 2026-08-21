@@ -13,6 +13,19 @@ import { getStateDir, stateDirPath } from './accounts.js'
  */
 export type ChannelMode = 'private' | 'group'
 
+/**
+ * What a spectator group is allowed to do.
+ *
+ * `mirror` — read-only. The group sees everything and can say nothing that
+ * reaches the agent. This is the default because adding a bot to a wide team
+ * group must not hand that group command execution.
+ *
+ * `interactive` — allowlisted users may also drive the session from the group.
+ * Still gated by the pairing allowlist: opting in widens *where* a trusted
+ * person may speak, never *who* is trusted.
+ */
+export type GroupMode = 'mirror' | 'interactive'
+
 /** What a terminal session mirrors out to DingTalk ("围观模式"). */
 export interface RelayConfig {
   /** Prompts typed in the terminal. */
@@ -56,6 +69,8 @@ export interface ChannelConfig {
    * being able to issue instructions.
    */
   mirrorConversations?: string[]
+  /** Whether spectator groups are read-only. Defaults to `mirror`. */
+  groupMode?: GroupMode
   relay: RelayConfig
   /** Override for {@link DEFAULT_PROGRESS_AFTER_MS}. */
   progressAfterMs?: number
@@ -80,6 +95,10 @@ export const DEFAULT_PROGRESS_AFTER_MS = 20_000
  */
 export const DEFAULT_CONFIG: ChannelConfig = {
   mode: 'private',
+  // Read-only spectators by default: opting a group into driving the session
+  // should be a deliberate act, never something inherited from a default.
+  groupMode: 'mirror',
+  mirrorConversations: [],
   relay: { ...DEFAULT_RELAY },
 }
 
@@ -110,6 +129,7 @@ export function loadChannelConfig(profile?: string): ChannelConfig {
       boundUserNick: parsed.boundUserNick,
       boundConversationId: parsed.boundConversationId,
       mirrorConversations: parsed.mirrorConversations ?? [],
+      groupMode: parsed.groupMode === 'interactive' ? 'interactive' : 'mirror',
       // Pick known keys only. A plain spread would preserve renamed switches
       // from an older config (toolStatus → progress/toolCalls), which then show
       // up in `status` as switches that no longer do anything.
@@ -117,7 +137,11 @@ export function loadChannelConfig(profile?: string): ChannelConfig {
       progressAfterMs: parsed.progressAfterMs ?? DEFAULT_PROGRESS_AFTER_MS,
     }
   } catch {
-    return { ...DEFAULT_CONFIG, relay: { ...DEFAULT_RELAY } }
+    return {
+      ...DEFAULT_CONFIG,
+      relay: { ...DEFAULT_RELAY },
+      mirrorConversations: [],
+    }
   }
 }
 
@@ -152,9 +176,21 @@ export function acceptsInbound(
       reason: 'channel is not bound — run `ccb dingtalk bind`',
     }
   }
-  if (msg.conversationId !== config.boundConversationId) {
+  const fromBound = msg.conversationId === config.boundConversationId
+  const fromInteractiveMirror =
+    config.groupMode === 'interactive' &&
+    !!msg.conversationId &&
+    (config.mirrorConversations ?? []).includes(msg.conversationId)
+
+  if (!fromBound && !fromInteractiveMirror) {
     return { ok: false, reason: 'message is not from the bound conversation' }
   }
+
+  // Private mode's second axis applies to the bound 1:1 only. A message from
+  // an interactive group is by definition not that conversation, so requiring
+  // the bound user there would make the mode unusable — the pairing allowlist
+  // is what governs who may speak in a group.
+  if (fromInteractiveMirror) return { ok: true }
   if (config.mode === 'private' && msg.senderStaffId !== config.boundUserId) {
     return { ok: false, reason: 'sender is not the bound user' }
   }
@@ -195,5 +231,8 @@ export function isMirrorOnly(
   conversationId: string,
 ): boolean {
   if (conversationId === config.boundConversationId) return false
-  return (config.mirrorConversations ?? []).includes(conversationId)
+  if (!(config.mirrorConversations ?? []).includes(conversationId)) return false
+  // interactive keeps the group in the mirror list but lets allowlisted users
+  // speak from it; the pairing check downstream still decides who.
+  return config.groupMode !== 'interactive'
 }

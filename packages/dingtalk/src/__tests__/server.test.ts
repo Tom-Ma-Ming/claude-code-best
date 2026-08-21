@@ -54,3 +54,21 @@ describe('dingtalk MCP tool declarations', () => {
     )
   })
 })
+
+describe('send_image declaration', () => {
+  test('is exposed and always loaded', async () => {
+    const { tools } = await listTools()
+    const img = tools.find(t => t.name === 'send_image')
+    expect(img).toBeDefined()
+    expect(img?._meta?.['anthropic/alwaysLoad']).toBe(true)
+  })
+
+  test('only path is required — chat_id falls back to the mirror set', async () => {
+    const { tools } = await listTools()
+    const img = tools.find(t => t.name === 'send_image')!
+    expect(img.inputSchema.required).toEqual(['path'])
+    expect(Object.keys(img.inputSchema.properties)).toEqual(
+      expect.arrayContaining(['path', 'chat_id']),
+    )
+  })
+})

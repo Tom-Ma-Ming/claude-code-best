@@ -11,9 +11,9 @@ import {
   processMessage,
   type PermissionResponse,
 } from './monitor.js'
-import { loadChannelConfig, outboundTarget } from './config.js'
+import { loadChannelConfig, outboundTarget, relayTargets } from './config.js'
 import { savePendingPermission } from './permissions.js'
-import { sendMarkdown, sendMediaFile, sendText } from './send.js'
+import { sendImage, sendMarkdown, sendMediaFile, sendText } from './send.js'
 import { runStreamClient } from './stream.js'
 import { ConversationType } from './types.js'
 import type { AccountData } from './accounts.js'
@@ -55,6 +55,8 @@ function formatPermissionRequestMessage(
  */
 const conversationTypes = new Map<string, string>()
 const senderIds = new Map<string, string>()
+/** Who asked last in each conversation — the person a group reply addresses. */
+const lastAskers = new Map<string, string>()
 
 export function rememberConversation(
   chatId: string,
@@ -63,6 +65,13 @@ export function rememberConversation(
 ): void {
   conversationTypes.set(chatId, conversationType)
   senderIds.set(chatId, senderId)
+  lastAskers.set(chatId, senderId)
+}
+
+export function clearServerStateForTests(): void {
+  conversationTypes.clear()
+  senderIds.clear()
+  lastAskers.clear()
 }
 
 function targetFor(chatId: string): {
@@ -70,12 +79,21 @@ function targetFor(chatId: string): {
   conversationType: string
   sessionWebhook?: string
   senderId?: string
+  atUserId?: string
 } {
+  const conversationType =
+    conversationTypes.get(chatId) ?? ConversationType.SINGLE
   return {
     chatId,
-    conversationType: conversationTypes.get(chatId) ?? ConversationType.SINGLE,
+    conversationType,
     sessionWebhook: getSessionWebhook(chatId),
     senderId: senderIds.get(chatId),
+    // Only groups need addressing — in a 1:1 there is no ambiguity about who
+    // the answer is for, and an @-mention there just adds noise.
+    atUserId:
+      conversationType === ConversationType.GROUP
+        ? lastAskers.get(chatId)
+        : undefined,
   }
 }
 
@@ -148,6 +166,27 @@ export function createDingtalkMcpServer(version: string): Server {
           required: ['chat_id', 'text'],
         },
       },
+      {
+        name: 'send_image',
+        _meta: { 'anthropic/alwaysLoad': true },
+        description:
+          'Send an image file to a DingTalk conversation. Use for screenshots and rendered output — markdown cannot carry a local file and a chat cannot open a path. Takes no screenshot itself; pass a file that already exists.',
+        inputSchema: {
+          type: 'object' as const,
+          properties: {
+            chat_id: {
+              type: 'string',
+              description:
+                'The chat_id from the channel notification. Omit to send to the bound conversation and every spectator group.',
+            },
+            path: {
+              type: 'string',
+              description: 'Absolute path to an image file that already exists',
+            },
+          },
+          required: ['path'],
+        },
+      },
     ],
   }))
 
@@ -163,6 +202,74 @@ export function createDingtalkMcpServer(version: string): Server {
           },
         ],
         isError: true,
+      }
+    }
+
+    if (name === 'send_image') {
+      const path = typeof args?.path === 'string' ? args.path : ''
+      if (!path) {
+        return {
+          content: [{ type: 'text', text: 'Missing path parameter.' }],
+          isError: true,
+        }
+      }
+      if (!existsSync(path)) {
+        return {
+          content: [{ type: 'text', text: `File not found: ${path}` }],
+          isError: true,
+        }
+      }
+
+      const config = loadChannelConfig()
+      const explicit = typeof args?.chat_id === 'string' ? args.chat_id : ''
+      // A run started at the terminal has no asker, so an unaddressed image
+      // goes to everyone watching rather than nowhere.
+      const targets = explicit ? [explicit] : relayTargets(config)
+      if (targets.length === 0) {
+        return {
+          content: [
+            {
+              type: 'text',
+              text: 'Nowhere to send: no chat_id given and the channel is not bound.',
+            },
+          ],
+          isError: true,
+        }
+      }
+
+      const failures: string[] = []
+      for (const chatId of targets) {
+        try {
+          await sendImage({
+            account,
+            target: targetFor(chatId),
+            filePath: path,
+          })
+        } catch (error) {
+          failures.push(
+            `${chatId}: ${error instanceof Error ? error.message : String(error)}`,
+          )
+        }
+      }
+
+      if (failures.length === targets.length) {
+        return {
+          content: [
+            {
+              type: 'text',
+              text: `Failed to send image — ${failures.join('; ')}`,
+            },
+          ],
+          isError: true,
+        }
+      }
+      return {
+        content: [
+          {
+            type: 'text',
+            text: `Image sent to ${targets.length - failures.length}/${targets.length} conversation(s).`,
+          },
+        ],
       }
     }
 
