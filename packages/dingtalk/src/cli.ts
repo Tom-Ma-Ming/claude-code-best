@@ -1,3 +1,5 @@
+import { homedir } from 'node:os'
+import { join } from 'node:path'
 import { createInterface } from 'node:readline/promises'
 import {
   activeProfile,
@@ -10,6 +12,19 @@ import {
   saveAccount,
 } from './accounts.js'
 import { getAccessToken } from './api.js'
+import { applyBinding, waitForFirstMessage } from './bind.js'
+import {
+  installRelayHooks,
+  relayHooksInstalled,
+  uninstallRelayHooks,
+} from './hooks.js'
+import { relayHookPayload, type HookPayload } from './relay.js'
+import {
+  isBound,
+  loadChannelConfig,
+  saveChannelConfig,
+  type ChannelMode,
+} from './config.js'
 import {
   confirmPairing,
   loadAccessConfig,
@@ -24,8 +39,22 @@ function printUsage(): void {
       'Usage:',
       '  ccb dingtalk serve',
       '  ccb dingtalk login              Enter AppKey / AppSecret / RobotCode',
+      '  ccb dingtalk login --app-key K --app-secret S [--robot-code R]',
+      '                                  Non-interactive; add --force to replace',
       '  ccb dingtalk login clear        Forget stored credentials',
       '  ccb dingtalk status             Show what is configured',
+      '  ccb dingtalk bind               Bind this session to a person or group',
+      '  ccb dingtalk bind --group       Force group mode',
+      '  ccb dingtalk bind --private     Force private mode',
+      '  ccb dingtalk unbind             Forget the binding',
+      '  ccb dingtalk mirror add <cid>   Add a spectator group (read-only)',
+      '  ccb dingtalk mirror rm <cid>    Remove one',
+      '  ccb dingtalk mirror list        List spectator groups',
+      '  ccb dingtalk mirror mode <m>    mirror (read-only) | interactive',
+      '  ccb dingtalk hooks install      Mirror this terminal into DingTalk',
+      '  ccb dingtalk hooks uninstall    Stop mirroring',
+      '  ccb dingtalk hooks status       Show whether mirroring is wired up',
+      '  ccb dingtalk relay <on|off> <k> prompts|replies|progress|toolCalls|errors|session',
       '  ccb dingtalk profiles           List stored credential profiles',
       '  ccb dingtalk access pair <code> Approve a pairing code',
       '  ccb dingtalk access list        List paired sender IDs',
@@ -94,7 +123,39 @@ function profileLabel(profile?: string): string {
   return profile ? ` (profile: ${profile})` : ''
 }
 
-async function runLogin(clear = false, profile?: string): Promise<void> {
+/** Pull `--flag value` / `--flag=value` out of argv. */
+function flagValue(args: string[], name: string): string | undefined {
+  const bare = `--${name}`
+  const eq = `${bare}=`
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i]!
+    if (arg === bare) return args[i + 1]
+    if (arg.startsWith(eq)) return arg.slice(eq.length)
+  }
+  return undefined
+}
+
+export interface LoginFlags {
+  appKey?: string
+  appSecret?: string
+  robotCode?: string
+  force?: boolean
+}
+
+export function parseLoginFlags(args: string[]): LoginFlags {
+  return {
+    appKey: flagValue(args, 'app-key'),
+    appSecret: flagValue(args, 'app-secret'),
+    robotCode: flagValue(args, 'robot-code'),
+    force: args.includes('--force'),
+  }
+}
+
+async function runLogin(
+  clear = false,
+  profile?: string,
+  flags: LoginFlags = {},
+): Promise<void> {
   if (clear) {
     clearAccount(profile)
     process.stdout.write(
@@ -103,7 +164,7 @@ async function runLogin(clear = false, profile?: string): Promise<void> {
     return
   }
 
-  const existing = loadAccount(profile)
+  const existing = flags.force ? null : loadAccount(profile)
   if (existing) {
     process.stdout.write(
       [
@@ -112,7 +173,8 @@ async function runLogin(clear = false, profile?: string): Promise<void> {
         `  RobotCode: ${existing.robotCode}`,
         `  Saved:     ${existing.savedAt}`,
         '',
-        `Run \`ccb dingtalk login clear${profile ? ` --profile ${profile}` : ''}\` to reset.`,
+        `Run \`ccb dingtalk login clear${profile ? ` --profile ${profile}` : ''}\` to reset,`,
+        'or pass --force to overwrite in place.',
       ].join('\n') + '\n',
     )
     return
@@ -135,6 +197,21 @@ async function runLogin(clear = false, profile?: string): Promise<void> {
   let appKey: string
   let appSecret: string
   let robotCodeInput: string
+
+  // Fully specified on the command line — no prompts. This is the path for
+  // scripting per-project setup across several robots.
+  if (flags.appKey && flags.appSecret) {
+    appKey = flags.appKey
+    appSecret = flags.appSecret
+    robotCodeInput = flags.robotCode ?? ''
+    return finishLogin(appKey, appSecret, robotCodeInput, profile)
+  }
+
+  if (flags.appKey || flags.appSecret) {
+    process.stderr.write('--app-key and --app-secret must be given together.\n')
+    process.exit(1)
+  }
+
   try {
     ;[appKey, appSecret, robotCodeInput] = (await promptAll([
       'AppKey: ',
@@ -155,6 +232,16 @@ async function runLogin(clear = false, profile?: string): Promise<void> {
     process.exit(1)
   }
 
+  return finishLogin(appKey, appSecret, robotCodeInput, profile)
+}
+
+/** Shared tail of both the interactive and flag-driven login paths. */
+async function finishLogin(
+  appKey: string,
+  appSecret: string,
+  robotCodeInput: string,
+  profile?: string,
+): Promise<void> {
   const robotCode = robotCodeInput || appKey
 
   // Verify before persisting — a typo'd secret is much cheaper to catch here
@@ -202,6 +289,253 @@ async function runLogin(clear = false, profile?: string): Promise<void> {
   )
 }
 
+async function runBind(modeOverride?: ChannelMode): Promise<void> {
+  const profile = activeProfile()
+
+  process.stdout.write(
+    [
+      `Binding this ccb channel${profileLabel(profile)}.`,
+      '',
+      'DingTalk publishes no link that opens an internal-app robot chat, so',
+      'there is nothing to scan — find the robot by name instead:',
+      '',
+      '  · Private mode: message the robot directly.',
+      '  · Group mode:   add the robot to the group, then @ it there.',
+      '',
+      'Waiting for your message (3 min)...',
+      '',
+    ].join('\n'),
+  )
+
+  let result
+  try {
+    result = await waitForFirstMessage({})
+  } catch (error) {
+    process.stderr.write(
+      `${error instanceof Error ? error.message : String(error)}\n`,
+    )
+    process.exit(1)
+  }
+
+  if (!result) {
+    process.stderr.write(
+      'Timed out with no message received.\n' +
+        'Check that the app is published and its 消息接收模式 is Stream.\n',
+    )
+    process.exit(1)
+  }
+
+  const { mode, warning } = applyBinding(result, profile, modeOverride)
+
+  const where =
+    mode === 'group'
+      ? `group ${result.conversationTitle ? `"${result.conversationTitle}"` : result.conversationId}`
+      : `private chat with ${result.senderNick || result.senderStaffId || 'unknown'}`
+
+  process.stdout.write(
+    [
+      `Bound to ${where}.`,
+      `  Mode:           ${mode}`,
+      `  Conversation:   ${result.conversationId}`,
+      result.senderStaffId ? `  User:           ${result.senderStaffId}` : '',
+      '',
+      mode === 'private'
+        ? 'Only this person, in this conversation, can drive the session.'
+        : 'Only this group can drive the session; pairing still governs who inside it may.',
+    ]
+      .filter(Boolean)
+      .join('\n') + '\n',
+  )
+
+  if (warning) {
+    process.stderr.write(`\nWarning: ${warning}\n`)
+  }
+}
+
+function runUnbind(): void {
+  const profile = activeProfile()
+  const config = loadChannelConfig(profile)
+  saveChannelConfig(
+    {
+      ...config,
+      boundUserId: undefined,
+      boundUserNick: undefined,
+      boundConversationId: undefined,
+    },
+    profile,
+  )
+  process.stdout.write(`Binding cleared${profileLabel(profile)}.\n`)
+}
+
+/** Read a hook payload from stdin (hooks pipe JSON in). */
+async function readStdin(): Promise<string> {
+  const chunks: Buffer[] = []
+  for await (const chunk of process.stdin) chunks.push(Buffer.from(chunk))
+  return Buffer.concat(chunks).toString('utf-8')
+}
+
+/**
+ * Hook entry point. Always exits 0: a relay failure must never block the turn
+ * it is attached to, and hooks that exit non-zero surface errors to the user
+ * or the model.
+ */
+async function runNotify(): Promise<void> {
+  try {
+    const raw = await readStdin()
+    if (!raw.trim()) return
+    await relayHookPayload(JSON.parse(raw) as HookPayload)
+  } catch (error) {
+    process.stderr.write(
+      `[dingtalk] relay skipped: ${error instanceof Error ? error.message : String(error)}\n`,
+    )
+  }
+}
+
+function settingsPathForHooks(): string {
+  return join(homedir(), '.ccb', 'settings.json')
+}
+
+function runHooks(args: string[]): void {
+  const path = settingsPathForHooks()
+  const action = args[0] ?? 'status'
+
+  if (action === 'install') {
+    installRelayHooks(path)
+    process.stdout.write(
+      [
+        `Mirroring installed in ${path}.`,
+        '',
+        "Your prompts, ccb's replies, tool status and errors will now be",
+        'mirrored to the bound DingTalk conversation.',
+        '',
+        'Restart any running ccb session for the hooks to take effect.',
+      ].join('\n') + '\n',
+    )
+    return
+  }
+
+  if (action === 'uninstall') {
+    process.stdout.write(
+      uninstallRelayHooks(path)
+        ? `Mirroring removed from ${path}.\n`
+        : 'Mirroring was not installed.\n',
+    )
+    return
+  }
+
+  process.stdout.write(
+    relayHooksInstalled(path)
+      ? `Mirroring is installed (${path}).\n`
+      : 'Mirroring is not installed. Run `ccb dingtalk hooks install`.\n',
+  )
+}
+
+function runRelayToggle(args: string[]): void {
+  const [state, key] = args
+  const keys = [
+    'prompts',
+    'replies',
+    'progress',
+    'toolCalls',
+    'errors',
+    'session',
+  ] as const
+  type RelayKey = (typeof keys)[number]
+
+  if ((state !== 'on' && state !== 'off') || !key) {
+    process.stderr.write(
+      `Usage: ccb dingtalk relay <on|off> <${keys.join('|')}>\n`,
+    )
+    process.exit(1)
+  }
+  if (!keys.includes(key as RelayKey)) {
+    process.stderr.write(
+      `Unknown relay key "${key}". One of: ${keys.join(', ')}\n`,
+    )
+    process.exit(1)
+  }
+
+  const profile = activeProfile()
+  const config = loadChannelConfig(profile)
+  config.relay[key as RelayKey] = state === 'on'
+  saveChannelConfig(config, profile)
+  process.stdout.write(`relay.${key} = ${state === 'on'}\n`)
+}
+
+function runMirror(args: string[]): void {
+  const [action, value] = args
+  const profile = activeProfile()
+  const config = loadChannelConfig(profile)
+  const current = config.mirrorConversations ?? []
+
+  if (!action || action === 'list') {
+    process.stdout.write(
+      current.length > 0
+        ? `Spectator groups:\n${current.map(c => `  · ${c}`).join('\n')}\n`
+        : 'No spectator groups. Add one with `ccb dingtalk mirror add <conversationId>`.\n',
+    )
+    return
+  }
+
+  if (action === 'add' && value) {
+    if (value === config.boundConversationId) {
+      process.stderr.write(
+        'That is the bound conversation — it already receives everything and can drive the session.\n',
+      )
+      process.exit(1)
+    }
+    if (current.includes(value)) {
+      process.stdout.write(`Already a spectator group: ${value}\n`)
+      return
+    }
+    saveChannelConfig(
+      { ...config, mirrorConversations: [...current, value] },
+      profile,
+    )
+    process.stdout.write(
+      `Added spectator group ${value}.\nIt receives the mirror but cannot drive the session.\n`,
+    )
+    return
+  }
+
+  if (action === 'mode') {
+    if (value !== 'mirror' && value !== 'interactive') {
+      process.stdout.write(
+        [
+          `Spectator groups are currently: ${config.groupMode ?? 'mirror'}`,
+          '',
+          '  mirror       read-only — the group watches, nothing it says reaches the agent',
+          '  interactive  paired users may also drive the session from the group',
+          '',
+          'Set with: ccb dingtalk mirror mode <mirror|interactive>',
+        ].join('\n') + '\n',
+      )
+      return
+    }
+    saveChannelConfig({ ...config, groupMode: value }, profile)
+    process.stdout.write(
+      value === 'interactive'
+        ? 'Spectator groups are now interactive — paired users may drive the session from them.\n'
+        : 'Spectator groups are now read-only.\n',
+    )
+    return
+  }
+
+  if (action === 'rm' && value) {
+    const next = current.filter(c => c !== value)
+    if (next.length === current.length) {
+      process.stderr.write(`Not a spectator group: ${value}\n`)
+      process.exit(1)
+    }
+    saveChannelConfig({ ...config, mirrorConversations: next }, profile)
+    process.stdout.write(`Removed ${value}.\n`)
+    return
+  }
+
+  printUsage()
+  process.exit(1)
+}
+
 function runProfiles(): void {
   const names = listProfiles()
   const active = activeProfile()
@@ -236,6 +570,7 @@ function runStatus(): void {
     return
   }
   const access = loadAccessConfig()
+  const channel = loadChannelConfig()
   process.stdout.write(
     [
       'DingTalk channel:',
@@ -244,6 +579,18 @@ function runStatus(): void {
       `  RobotCode: ${account.robotCode}`,
       `  Source:    ${account.savedAt === 'env' ? 'environment variables' : account.savedAt}`,
       `  State dir: ${getStateDir()}`,
+      '',
+      `Mode:          ${channel.mode}`,
+      isBound(channel)
+        ? `Bound to:      ${channel.mode === 'private' ? `${channel.boundUserNick || channel.boundUserId} (${channel.boundConversationId})` : channel.boundConversationId}`
+        : 'Bound to:      (not bound — run `ccb dingtalk bind`)',
+      `Spectators:    ${(channel.mirrorConversations ?? []).length} group(s), ${channel.groupMode ?? 'mirror'}`,
+      `Relay:         ${
+        Object.entries(channel.relay)
+          .filter(([, on]) => on)
+          .map(([k]) => k)
+          .join(', ') || '(all off)'
+      }`,
       '',
       `Access policy: ${access.policy}`,
       access.allowFrom.length > 0
@@ -353,10 +700,38 @@ export async function handleDingtalkCli(
       await runDingtalkMcpServer(version ?? '0.0.0', serverDeps)
       return
     case 'login':
-      await runLogin(rest[0] === 'clear', activeProfile())
+      await runLogin(
+        rest[0] === 'clear',
+        activeProfile(),
+        parseLoginFlags(rest),
+      )
       return
     case 'status':
       runStatus()
+      return
+    case 'bind': {
+      const mode: ChannelMode | undefined = rest.includes('--group')
+        ? 'group'
+        : rest.includes('--private')
+          ? 'private'
+          : undefined
+      await runBind(mode)
+      return
+    }
+    case 'unbind':
+      runUnbind()
+      return
+    case 'mirror':
+      runMirror(rest)
+      return
+    case 'notify':
+      await runNotify()
+      return
+    case 'hooks':
+      runHooks(rest)
+      return
+    case 'relay':
+      runRelayToggle(rest)
       return
     case 'profiles':
       runProfiles()

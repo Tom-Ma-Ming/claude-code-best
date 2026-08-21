@@ -69,6 +69,9 @@ export function createWeixinMcpServer(version: string): Server {
     tools: [
       {
         name: 'reply',
+        // See the dingtalk channel: MCP tools outside CORE_TOOLS are deferred,
+        // which makes the only reply path unusable.
+        _meta: { 'anthropic/alwaysLoad': true },
         description:
           'Reply to a WeChat message. Pass the chat_id from the channel tag.',
         inputSchema: {
@@ -90,6 +93,7 @@ export function createWeixinMcpServer(version: string): Server {
       },
       {
         name: 'send_typing',
+        _meta: { 'anthropic/alwaysLoad': true },
         description: 'Send a typing indicator to a WeChat user.',
         inputSchema: {
           type: 'object' as const,

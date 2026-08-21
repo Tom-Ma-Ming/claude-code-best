@@ -67,14 +67,23 @@ export function activeProfile(): string | undefined {
  * The unnamed default profile stays at the channel root so existing installs
  * keep working untouched.
  */
-export function getStateDir(profile?: string): string {
+export function stateDirPath(profile?: string): string {
   const explicit = process.env.DINGTALK_STATE_DIR
+  if (explicit) return explicit
   const name = profile ?? activeProfile()
-  const dir = explicit
-    ? explicit
-    : name
-      ? join(channelRoot(), 'profiles', name)
-      : channelRoot()
+  return name ? join(channelRoot(), 'profiles', name) : channelRoot()
+}
+
+/**
+ * State directory, created if missing.
+ *
+ * Only callers that are about to *write* should use this. Reads go through
+ * {@link stateDirPath}: probing an unconfigured profile should not leave an
+ * empty directory behind, which is what `loadAccount` used to do for every
+ * profile name it was asked about.
+ */
+export function getStateDir(profile?: string): string {
+  const dir = stateDirPath(profile)
   if (!existsSync(dir)) {
     mkdirSync(dir, { recursive: true })
   }
@@ -97,17 +106,22 @@ export function listProfiles(): string[] {
 }
 
 function accountPath(profile?: string): string {
-  return join(getStateDir(profile), 'account.json')
+  return join(stateDirPath(profile), 'account.json')
 }
 
 /**
- * Credentials come from the account file, or from env vars so a container can
- * inject them without a writable home. Env wins — it is the more explicit
- * source and is how CI/containers are expected to configure the channel.
+ * Credentials for a profile.
+ *
+ * Env vars (DINGTALK_APP_KEY/SECRET) configure the **unnamed default profile**
+ * only — that is the container case, where there is no writable home to log
+ * into. Naming a profile means "use that profile's file"; letting env shadow it
+ * made `login --profile b` report profile A's env credentials as already
+ * configured, so B was never written and the wrong robot was used.
  */
 export function loadAccount(profile?: string): AccountData | null {
-  const envKey = process.env.DINGTALK_APP_KEY
-  const envSecret = process.env.DINGTALK_APP_SECRET
+  const selected = profile ?? activeProfile()
+  const envKey = selected ? undefined : process.env.DINGTALK_APP_KEY
+  const envSecret = selected ? undefined : process.env.DINGTALK_APP_SECRET
   if (envKey && envSecret) {
     return {
       appKey: envKey,
@@ -140,6 +154,7 @@ export function loadAccount(profile?: string): AccountData | null {
 }
 
 export function saveAccount(data: AccountData, profile?: string): void {
+  getStateDir(profile)
   const path = accountPath(profile)
   writeFileSync(path, JSON.stringify(data, null, 2), 'utf-8')
   // Contains appSecret — keep it off other users' eyes on shared machines.

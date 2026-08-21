@@ -1,4 +1,11 @@
 import { getAccessToken } from './api.js'
+import { handleChannelCommand } from './commands.js'
+import {
+  acceptsInbound,
+  isBound,
+  isMirrorOnly,
+  loadChannelConfig,
+} from './config.js'
 import { categoryForMsgType, downloadInboundFile } from './media.js'
 import {
   addPendingPairing,
@@ -6,10 +13,7 @@ import {
   isConversationBound,
   senderIdentity,
 } from './pairing.js'
-import {
-  consumePendingPermission,
-  setActivePermissionChat,
-} from './permissions.js'
+import { consumePendingPermission } from './permissions.js'
 import { sendText } from './send.js'
 import { ConversationType, InboundMsgType } from './types.js'
 import type { AccountData } from './accounts.js'
@@ -141,6 +145,46 @@ export async function processMessage(
     return
   }
 
+  // The channel binding is the outer gate: in private mode only the bound
+  // person's 1:1 chat drives the session, in group mode only the bound group.
+  // Everything downstream (pairing, permissions) operates inside that scope.
+  const channel = loadChannelConfig()
+
+  // Spectator groups are read-only by construction: they see the mirror, but
+  // nothing typed there reaches the agent. Adding the bot to a wide team group
+  // must never hand that group the ability to run commands.
+  if (isMirrorOnly(channel, chatId)) {
+    process.stderr.write(
+      `[dingtalk] Ignoring input from mirror-only group ${chatId}\n`,
+    )
+    return
+  }
+
+  const verdict = acceptsInbound(channel, msg)
+  if (!verdict.ok) {
+    process.stderr.write(`[dingtalk] Rejected inbound: ${verdict.reason}\n`)
+    // An unbound channel is an operator error, not a stranger knocking — say so
+    // in the chat so it is discoverable without reading stderr.
+    if (!isBound(channel) && msg.sessionWebhook) {
+      try {
+        await sendText({
+          account: ctx.account,
+          target: {
+            chatId,
+            conversationType: msg.conversationType || ConversationType.SINGLE,
+            sessionWebhook: msg.sessionWebhook,
+            senderId: msg.senderStaffId || msg.senderId,
+          },
+          text: 'This ccb channel is not bound yet. Run `ccb dingtalk bind` on the machine running ccb, then send this message again.',
+          signal: ctx.signal,
+        })
+      } catch {
+        // best-effort notice
+      }
+    }
+    return
+  }
+
   // senderStaffId (org userId) is absent for external contacts and for members
   // of other orgs in a shared group — those fall back to the opaque senderId,
   // kept in a separate namespace so the two can never collide.
@@ -199,13 +243,33 @@ export async function processMessage(
     return
   }
 
-  setActivePermissionChat(chatId, msg.sessionWebhook)
-
   const rawText = extractText(msg)
   const text =
     conversationType === ConversationType.GROUP
       ? stripAtMention(rawText, ctx.robotNick)
       : rawText.trim()
+
+  // Channel commands are answered here rather than by the agent: the binding
+  // and relay switches are known only to this process, and answering locally
+  // also works while the agent is mid-run.
+  if (text) {
+    const handled = handleChannelCommand(text)
+    if (handled) {
+      try {
+        await sendText({
+          account: ctx.account,
+          target,
+          text: handled.reply,
+          signal: ctx.signal,
+        })
+      } catch (error) {
+        process.stderr.write(
+          `[dingtalk] Failed to answer channel command: ${error instanceof Error ? error.message : String(error)}\n`,
+        )
+      }
+      return
+    }
+  }
 
   // A permission verdict is a control message, not a prompt — consume it and
   // return so it never reaches the model as user input.

@@ -149,6 +149,184 @@ ccb dingtalk access revoke <staffId> # 撤销
 
 ---
 
+## 绑定：让机器人只服务你（或一个群）
+
+配好凭据后还要**绑定**，否则机器人不会响应任何人。
+
+```bash
+ccb dingtalk bind
+```
+
+它会开一条连接等你发消息，然后把发送者和会话记下来：
+
+- **私聊模式** — 直接给机器人发消息 → 只有你、且只在这个会话里，能驱动 ccb
+- **群聊模式** — 把机器人拉进群、@ 它 → 只有这个群能驱动，群里谁能驱动仍由配对管
+
+模式**根据实际收到的消息推断**。想强制的话：
+
+```bash
+ccb dingtalk bind --private
+ccb dingtalk bind --group
+ccb dingtalk unbind
+```
+
+> 钉钉没有可扫码打开企业内部应用机器人会话的链接（官方给的办法是在搜索框搜机器人名字），所以这里没有二维码。发一条消息拿到的身份和扫码完全等价。
+
+绑定状态看 `ccb dingtalk status`：
+
+```
+Mode:          private
+Bound to:      张三 (cidXXXXXX==)
+Relay:         prompts, replies, toolStatus, errors
+```
+
+**未绑定时机器人拒绝一切**，并在聊天里回一句提示——不用去翻 stderr 才知道为什么没反应。
+
+### 私聊模式为什么两个维度都卡
+
+绑定者在**某个不相干的群**里发言，不算绑定频道，不会驱动会话。只有「绑定的人 + 绑定的会话」同时满足才放行。
+
+## 围观群：驱动方和观众分开
+
+绑定的会话是**驱动方**——它能指挥 agent。此外可以再挂若干**围观群**：它们收到全部镜像，但**群里说什么都不会进 agent**。
+
+```bash
+ccb dingtalk mirror add cidXXXXXXXX==   # 加一个围观群
+ccb dingtalk mirror list
+ccb dingtalk mirror rm cidXXXXXXXX==
+```
+
+典型用法：你在私聊里指挥，团队群只看进度。往一个大群里拉机器人时这点很重要——**围观群按构造就是只读的**，不存在「群里有人不小心让它跑了个命令」。
+
+> 拿群的 conversationId：把机器人拉进群 @ 一下，`--debug mcp` 的日志里会打出 `chat_id`。
+
+### 让围观群也能说话
+
+默认围观群是**只读**的。想让群里的人也能指挥：
+
+```bash
+ccb dingtalk mirror mode interactive
+ccb dingtalk mirror mode mirror        # 改回只读
+ccb dingtalk mirror mode               # 查看当前
+```
+
+`interactive` 只放宽**在哪儿说**，不放宽**谁可信**——群里的人仍须通过配对才能驱动会话。绑定的私聊那一路不受影响，依旧只认绑定者本人。
+
+### 回复会 @ 提问者
+
+群里没有 Slack 那种 thread，几个人同时问的话，不点名的回答就成了猜谜。所以群聊里的回复会 @ 最近的提问者（私聊不加，那里没有歧义）。
+
+## agent 主动发图：send_image
+
+markdown 带不了本地文件，聊天窗口也打不开路径，所以跑起来截的图本来是出不去的。配好机器人后 agent 会多一个 `send_image` 工具：
+
+```
+你：打开首页看看渲染对不对
+ccb：（截图，然后调用 send_image 把图发给你）
+```
+
+不传 `chat_id` 就发给绑定会话 + 所有围观群；跑在终端里的任务没有提问者，图就只进围观群。两边都没有时它会明说「没地方可发」，而不是假装成功。
+
+它**只发已经存在的文件**，自己不截图——配合你原有的截图 skill 用。图片走主动发送接口（session webhook 没有图片消息类型）。
+
+## 聊天命令
+
+有些问题不必打扰 agent，机器人自己就能答——而且 **agent 忙的时候也能用**：
+
+| 命令 | 作用 |
+|---|---|
+| `/help` `/帮助` | 命令列表 |
+| `/status` `/状态` | 绑定状态、围观群数量、转发开关 |
+| `/relay` | 查看转发开关 |
+| `/relay on\|off <项>` | 开关某一项，如 `/relay on toolCalls` |
+
+带参数的命令才会吃掉后文，所以 **`/status 一下部署` 仍然是个问题**，不会被当成命令。
+
+### ccb 自己的斜杠命令
+
+频道消息此前被写死 `skipSlashCommands: true`——所有斜杠命令一律禁掉。现在改用 Remote Control 已有的 `bridgeOrigin` 通道，经 `isBridgeSafeCommand()` 过滤后放行：
+
+**可用**：`/compact` `/clear` `/cost` `/summary` `/files`，以及所有 skill（`/skill:xxx`）
+
+**仍然禁止**：会弹出 Ink 界面的命令（`/model` 之类）——终端前没人看着那个选择器。这类命令会返回一句说明而不是静默失败。
+
+## 围观模式：把终端镜像到钉钉
+
+在终端里干活，同时让钉钉那边看到全过程：
+
+```bash
+ccb dingtalk hooks install
+```
+
+写进 `~/.ccb/settings.json`，装完**重启 ccb 会话**生效。
+
+镜像的内容，各自可开关：
+
+| 类别 | 默认 | 内容 |
+|------|------|------|
+| `prompts` | 开 | 你在终端输入的指令 |
+| `replies` | 开 | ccb 每轮的最终回复 |
+| `progress` | 开 | **一次运行最多一条**「还在进行中」，且只在运行超过 20 秒时发 |
+| `toolCalls` | **关** | 每个工具调用都播报。很吵，按需开 |
+| `errors` | 开 | 轮次因 API 错误中止 |
+| `session` | 开 | 会话开始 / 结束（带项目名）|
+
+```bash
+ccb dingtalk relay on toolCalls    # 真要看每个工具
+ccb dingtalk relay off progress
+ccb dingtalk hooks status
+ccb dingtalk hooks uninstall
+```
+
+### 进度为什么按时长而不按工具数
+
+早期版本对每个工具调用发心跳，哪怕加了节流仍然吵——因为**工具数量不是你关心的东西**。一次跑三十个工具的快速任务不该打扰任何人；真正值得说一声的是「这活儿干了很久还没完」。
+
+所以现在是：一次运行**最多一条**，且只在运行时长超过阈值时发：
+
+```
+⏳ 任务还在进行中（45s，12 个工具），完成后会把结果发给你。
+```
+
+阈值可调，写进 profile 的 `config.json`：
+
+```jsonc
+{ "progressAfterMs": 20000 }   // 0 表示完全关掉
+```
+
+时钟锚在 `UserPromptSubmit`（这一轮开始），不是「距上次工具多久」。
+
+> **工具成功完成时不发消息**。成功已经隐含在下一条状态行或最终回复里，再发一遍只会让消息量翻倍。只有失败才通知。
+
+### 为什么工具状态要节流
+
+`PreToolUse` 对**每个**工具调用都触发，而一轮里 agent 常常调用几十个工具——原样转发会把群刷爆。所以做了两层收敛：
+
+1. **45 秒内最多一条** —— 期间的调用折叠进去，显示成 `⏳ 仍在工作（15 个工具）`
+2. **不发工具名，更不发参数** —— 详见下方
+
+### 进度消息不会泄露你在干什么
+
+进度消息只报**时长和工具数量**，不带工具名，更不带参数。
+
+这点是有意的：`tool_input` 就是 bash 命令原文、Edit 的改动内容、被写入的文件。把它推进群里等于把工作内容广播给所有围观的人。开了 `toolCalls` 之后同样只报工具名，不报参数。
+
+每次 hook 都是独立进程，所以窗口状态存在 `relay-state.json` 里而不是内存。
+
+还嫌吵就直接关掉：
+
+```bash
+ccb dingtalk relay off toolStatus
+```
+
+### 群聊模式不会回声
+
+在钉钉里发的指令会注入会话并触发 `UserPromptSubmit`。如果照直转发，就会把你刚发的消息再发回群里——群里每条指令看两遍。
+
+所以转发会跳过**来自本频道**的 prompt（识别注入时的 `<channel source="plugin:dingtalk:...">` 包裹），只转发你在**终端**里输入的内容。
+
+安装器只动自己写的那几条，你已有的 hook 不受影响；重复安装不会产生重复条目；`settings.json` 是坏 JSON 时会**拒绝写入**而不是覆盖掉。
+
 ## 多个项目怎么办
 
 **一个钉钉应用对应一个项目。** 每个项目在开放平台建自己的应用（自己的 AppKey），跑自己的 ccb 实例。机器人可以起不同名字（`ccb-项目A`、`ccb-项目B`），在钉钉里一眼能分清。
@@ -295,8 +473,26 @@ Or deny with: no abcde
 
 ### 图片和文件
 
-- **发给 ccb**：直接在钉钉里发图片/文件，ccb 会下载到临时目录并把路径告诉模型
-- **ccb 发给你**：模型调 `reply` 工具时带 `files` 参数即可
+**发给 ccb**：直接在钉钉里发图片、文件、语音、视频。ccb 下载到临时目录，把路径放在 channel 标签的 `attachment_path` 上：
+
+```xml
+<channel source="plugin:dingtalk:dingtalk" chat_id="..."
+         attachment_path="/tmp/ccb-dingtalk-media/1755-report.pdf"
+         attachment_type="file">
+```
+
+模型据此用 Read 打开——图片会直接看到画面，PDF 会被解析。支持的类型：
+
+| 你发的 | attachment_type |
+|---|---|
+| 图片 | `image` |
+| 文件（PDF/文档等）| `file` |
+| 语音 | `voice`（同时带钉钉的转写文字）|
+| 视频 | `video` |
+
+> 语音会额外附上钉钉服务端的转写结果，所以哪怕不听音频，模型也能读懂你说了什么。
+
+**ccb 发给你**：模型调 `reply` 时带 `files` 参数，传绝对路径。
 
 ---
 
@@ -305,12 +501,18 @@ Or deny with: no abcde
 | 现象 | 原因 |
 |------|------|
 | 启动后钉钉发消息没反应 | 忘了带 `--channels plugin:dingtalk@builtin` |
+| 机器人回「not bound yet」 | 还没执行 `ccb dingtalk bind` |
+| 私聊有反应、群里没有 | 绑定的是私聊。用 `ccb dingtalk bind --group` 重新绑到群 |
+| 终端干活但钉钉没镜像 | 没装 hook，或装完没重启会话（`ccb dingtalk hooks status`）|
+| 钉钉刷屏 | `ccb dingtalk relay off toolStatus` |
 | 一直只回配对码 | 还没执行 `ccb dingtalk access pair <code>` |
 | 收得到但机器人不说话 | 缺 `qyapi_robot_sendmsg` 权限 |
 | 机器人在钉钉里搜不到 | 应用没发布（第四步） |
 | `[dingtalk] Stream error: ...` | AppKey/AppSecret 错，或消息接收模式没选 Stream |
 | 群里 @它没反应 | 机器人没加进群，或应用没发布 |
 | 发文件失败 | 缺 `qyapi_media_upload` 权限 |
+| 模型说 reply 工具怎么传参都报错、反复重试、退不出会话 | `reply` 被当成延迟工具了。见下 |
+| 终端发完消息后，群里 @ 机器人没反应 | 多半是上一条的下游效应：模型卡在重试里，`isQueryActive` 一直为真，队列不消费。修复后重启会话 |
 
 看详细日志：
 
@@ -319,6 +521,24 @@ ccb --channels plugin:dingtalk@builtin --debug mcp
 ```
 
 ---
+
+### 为什么 reply 必须标记 alwaysLoad
+
+ccb 的 `isDeferredTool()` 是白名单制：不在 `CORE_TOOLS` 里的 MCP 工具**一律延迟加载**，只暴露名字、不暴露参数 schema。
+
+对一般工具这没问题——模型可以先 `SearchExtraTools` 再用。但 `reply` 是**回复入站消息的唯一途径**：消息进来了，模型却调不动回复工具，于是反复重试、会话卡住退不出。
+
+所以渠道工具必须显式声明：
+
+```ts
+{
+  name: 'reply',
+  _meta: { 'anthropic/alwaysLoad': true },
+  ...
+}
+```
+
+`src/services/mcp/client.ts` 读这个字段。有回归测试锁住，新增渠道工具时别忘了。
 
 ## 工作原理
 

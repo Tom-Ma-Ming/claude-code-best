@@ -17,16 +17,9 @@ export type PendingPermissionRequest = ChannelPermissionRequestParams & {
   expiresAt: number
 }
 
-export type ActivePermissionChat = {
-  chatId: string
-  sessionWebhook?: string
-  updatedAt: number
-}
-
 const PENDING_PERMISSION_TTL_MS = 15 * 60 * 1000
 
 const pendingPermissions = new Map<string, PendingPermissionRequest>()
-let activePermissionChat: ActivePermissionChat | null = null
 
 function pruneExpiredPendingPermissions(now = Date.now()): void {
   for (const [requestId, entry] of pendingPermissions.entries()) {
@@ -34,17 +27,6 @@ function pruneExpiredPendingPermissions(now = Date.now()): void {
       pendingPermissions.delete(requestId)
     }
   }
-}
-
-export function setActivePermissionChat(
-  chatId: string,
-  sessionWebhook?: string,
-): void {
-  activePermissionChat = { chatId, sessionWebhook, updatedAt: Date.now() }
-}
-
-export function getActivePermissionChat(): ActivePermissionChat | null {
-  return activePermissionChat
 }
 
 export function savePendingPermission(
@@ -86,5 +68,4 @@ export function consumePendingPermission(
 
 export function clearPermissionStateForTests(): void {
   pendingPermissions.clear()
-  activePermissionChat = null
 }

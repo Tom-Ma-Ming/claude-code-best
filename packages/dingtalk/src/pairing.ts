@@ -1,6 +1,6 @@
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { getStateDir } from './accounts.js'
+import { getStateDir, stateDirPath } from './accounts.js'
 
 export interface AccessConfig {
   /**
@@ -74,11 +74,11 @@ interface PendingEntry {
 const PAIRING_TTL_MS = 10 * 60 * 1000
 
 function configPath(): string {
-  return join(getStateDir(), 'access.json')
+  return join(stateDirPath(), 'access.json')
 }
 
 function pendingPath(): string {
-  return join(getStateDir(), 'pending-pairings.json')
+  return join(stateDirPath(), 'pending-pairings.json')
 }
 
 function loadPending(): Record<string, PendingEntry> {
@@ -95,6 +95,7 @@ function loadPending(): Record<string, PendingEntry> {
 }
 
 function savePending(data: Record<string, PendingEntry>): void {
+  getStateDir()
   writeFileSync(pendingPath(), JSON.stringify(data, null, 2), 'utf-8')
 }
 
@@ -113,6 +114,7 @@ export function loadAccessConfig(): AccessConfig {
 }
 
 export function saveAccessConfig(config: AccessConfig): void {
+  getStateDir()
   writeFileSync(configPath(), JSON.stringify(config, null, 2), 'utf-8')
 }
 

@@ -1,0 +1,238 @@
+import { existsSync, readFileSync, writeFileSync } from 'node:fs'
+import { join } from 'node:path'
+import { getStateDir, stateDirPath } from './accounts.js'
+
+/**
+ * How this ccb instance talks to DingTalk.
+ *
+ * `private` — one bound person, in their 1:1 chat with the robot. Nothing from
+ * anyone else is acted on, and everything the session emits goes to them.
+ *
+ * `group` — one bound group. Everyone in it can watch; who may *drive* the
+ * session is still governed by the pairing allowlist.
+ */
+export type ChannelMode = 'private' | 'group'
+
+/**
+ * What a spectator group is allowed to do.
+ *
+ * `mirror` — read-only. The group sees everything and can say nothing that
+ * reaches the agent. This is the default because adding a bot to a wide team
+ * group must not hand that group command execution.
+ *
+ * `interactive` — allowlisted users may also drive the session from the group.
+ * Still gated by the pairing allowlist: opting in widens *where* a trusted
+ * person may speak, never *who* is trusted.
+ */
+export type GroupMode = 'mirror' | 'interactive'
+
+/** What a terminal session mirrors out to DingTalk ("围观模式"). */
+export interface RelayConfig {
+  /** Prompts typed in the terminal. */
+  prompts: boolean
+  /** The agent's reply at the end of each turn. */
+  replies: boolean
+  /**
+   * One "still working" note per run, sent only if the run outlives
+   * {@link progressAfterMs}.
+   *
+   * Time-based rather than tool-based: a run's length is what a spectator
+   * actually wants to know about, and a fast run that happened to call thirty
+   * tools should stay silent.
+   */
+  progress: boolean
+  /**
+   * Broadcast every tool invocation. Off by default — a normal run makes
+   * dozens of calls, and relaying them buries the answer.
+   */
+  toolCalls: boolean
+  /** Turn-level failures: the run died on an API error. */
+  errors: boolean
+  /** Session started / ended. Separate from errors: quitting is not a failure,
+   *  and with several projects you need to know *which* one just stopped. */
+  session: boolean
+}
+
+export interface ChannelConfig {
+  mode: ChannelMode
+  /** Staff id bound by `ccb dingtalk bind`. Required in private mode. */
+  boundUserId?: string
+  /** Display name of the bound user, for nicer status lines. */
+  boundUserNick?: string
+  /** Conversation that drives the session. Set by bind for both modes. */
+  boundConversationId?: string
+  /**
+   * Extra groups that receive everything but cannot drive the session.
+   *
+   * Separating the driving channel from the audience is the point: one person
+   * steers from a private chat while a team group watches, without that group
+   * being able to issue instructions.
+   */
+  mirrorConversations?: string[]
+  /** Whether spectator groups are read-only. Defaults to `mirror`. */
+  groupMode?: GroupMode
+  relay: RelayConfig
+  /** Override for {@link DEFAULT_PROGRESS_AFTER_MS}. */
+  progressAfterMs?: number
+}
+
+export const DEFAULT_RELAY: RelayConfig = {
+  prompts: true,
+  replies: true,
+  progress: true,
+  toolCalls: false,
+  errors: true,
+  session: true,
+}
+
+/** How long a run must last before the single progress note is sent. 0 = off. */
+export const DEFAULT_PROGRESS_AFTER_MS = 20_000
+
+/**
+ * Unbound default. `mode: private` with no bound user means "not configured
+ * yet" — the channel refuses to act until bind runs, rather than defaulting to
+ * answering whoever shows up first.
+ */
+export const DEFAULT_CONFIG: ChannelConfig = {
+  mode: 'private',
+  // Read-only spectators by default: opting a group into driving the session
+  // should be a deliberate act, never something inherited from a default.
+  groupMode: 'mirror',
+  mirrorConversations: [],
+  relay: { ...DEFAULT_RELAY },
+}
+
+function pickRelay(raw: unknown): RelayConfig {
+  const src = (raw ?? {}) as Partial<Record<keyof RelayConfig, unknown>>
+  const out = { ...DEFAULT_RELAY }
+  for (const key of Object.keys(DEFAULT_RELAY) as (keyof RelayConfig)[]) {
+    if (typeof src[key] === 'boolean') out[key] = src[key] as boolean
+  }
+  return out
+}
+
+function configPath(profile?: string): string {
+  return join(stateDirPath(profile), 'config.json')
+}
+
+export function loadChannelConfig(profile?: string): ChannelConfig {
+  const path = configPath(profile)
+  if (!existsSync(path))
+    return { ...DEFAULT_CONFIG, relay: { ...DEFAULT_RELAY } }
+  try {
+    const parsed = JSON.parse(
+      readFileSync(path, 'utf-8'),
+    ) as Partial<ChannelConfig>
+    return {
+      mode: parsed.mode === 'group' ? 'group' : 'private',
+      boundUserId: parsed.boundUserId,
+      boundUserNick: parsed.boundUserNick,
+      boundConversationId: parsed.boundConversationId,
+      mirrorConversations: parsed.mirrorConversations ?? [],
+      groupMode: parsed.groupMode === 'interactive' ? 'interactive' : 'mirror',
+      // Pick known keys only. A plain spread would preserve renamed switches
+      // from an older config (toolStatus → progress/toolCalls), which then show
+      // up in `status` as switches that no longer do anything.
+      relay: pickRelay(parsed.relay),
+      progressAfterMs: parsed.progressAfterMs ?? DEFAULT_PROGRESS_AFTER_MS,
+    }
+  } catch {
+    return {
+      ...DEFAULT_CONFIG,
+      relay: { ...DEFAULT_RELAY },
+      mirrorConversations: [],
+    }
+  }
+}
+
+export function saveChannelConfig(
+  config: ChannelConfig,
+  profile?: string,
+): void {
+  getStateDir(profile)
+  writeFileSync(configPath(profile), JSON.stringify(config, null, 2), 'utf-8')
+}
+
+export function isBound(config: ChannelConfig): boolean {
+  return config.mode === 'private'
+    ? Boolean(config.boundUserId && config.boundConversationId)
+    : Boolean(config.boundConversationId)
+}
+
+/**
+ * Whether an inbound message may drive the session.
+ *
+ * Private mode is deliberately strict on both axes: the right person *and*
+ * their 1:1 conversation. A message from the bound user inside some unrelated
+ * group is not the bound channel and must not steer the session.
+ */
+export function acceptsInbound(
+  config: ChannelConfig,
+  msg: { senderStaffId?: string; conversationId?: string },
+): { ok: true } | { ok: false; reason: string } {
+  if (!isBound(config)) {
+    return {
+      ok: false,
+      reason: 'channel is not bound — run `ccb dingtalk bind`',
+    }
+  }
+  const fromBound = msg.conversationId === config.boundConversationId
+  const fromInteractiveMirror =
+    config.groupMode === 'interactive' &&
+    !!msg.conversationId &&
+    (config.mirrorConversations ?? []).includes(msg.conversationId)
+
+  if (!fromBound && !fromInteractiveMirror) {
+    return { ok: false, reason: 'message is not from the bound conversation' }
+  }
+
+  // Private mode's second axis applies to the bound 1:1 only. A message from
+  // an interactive group is by definition not that conversation, so requiring
+  // the bound user there would make the mode unusable — the pairing allowlist
+  // is what governs who may speak in a group.
+  if (fromInteractiveMirror) return { ok: true }
+  if (config.mode === 'private' && msg.senderStaffId !== config.boundUserId) {
+    return { ok: false, reason: 'sender is not the bound user' }
+  }
+  return { ok: true }
+}
+
+/** Where a direct reply goes. Null until bind has run. */
+export function outboundTarget(config: ChannelConfig): string | null {
+  return isBound(config) ? (config.boundConversationId ?? null) : null
+}
+
+/**
+ * Every conversation that should see relayed session traffic: the bound one
+ * plus the spectator groups, de-duplicated.
+ *
+ * Used by the relay, not by `reply` — an answer belongs to the conversation
+ * that asked, while a mirror is for everyone watching.
+ */
+export function relayTargets(config: ChannelConfig): string[] {
+  const seen = new Set<string>()
+  const bound = outboundTarget(config)
+  if (bound) seen.add(bound)
+  for (const id of config.mirrorConversations ?? []) {
+    if (id.trim()) seen.add(id.trim())
+  }
+  return [...seen]
+}
+
+/**
+ * Whether a conversation is a spectator-only group.
+ *
+ * Mirror groups are read-only by construction: they receive the mirror but
+ * nothing typed in them reaches the agent, so adding the bot to a wide team
+ * group never hands that group the ability to run commands.
+ */
+export function isMirrorOnly(
+  config: ChannelConfig,
+  conversationId: string,
+): boolean {
+  if (conversationId === config.boundConversationId) return false
+  if (!(config.mirrorConversations ?? []).includes(conversationId)) return false
+  // interactive keeps the group in the mirror list but lets allowlisted users
+  // speak from it; the pairing check downstream still decides who.
+  return config.groupMode !== 'interactive'
+}
