@@ -3,11 +3,12 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
+  beginRun,
   formatRelay,
   isChannelEcho,
   lastAssistantText,
   relayCategory,
-  shouldSendToolStatus,
+  shouldSendProgress,
 } from '../relay.js'
 
 let dir: string
@@ -26,9 +27,9 @@ describe('relayCategory', () => {
   test.each([
     ['UserPromptSubmit', 'prompts'],
     ['Stop', 'replies'],
-    ['PreToolUse', 'toolStatus'],
-    ['PostToolUse', 'toolStatus'],
-    ['PostToolUseFailure', 'errors'],
+    ['PreToolUse', 'toolCalls'],
+    ['PostToolUse', 'toolCalls'],
+    ['PostToolUseFailure', 'toolCalls'],
     ['StopFailure', 'errors'],
     ['SessionEnd', 'session'],
     ['SessionStart', 'session'],
@@ -150,14 +151,16 @@ describe('formatRelay', () => {
     expect(formatRelay({ hook_event_name: 'Stop' })).toBeNull()
   })
 
-  test('renders a running tool', () => {
+  test('a tool call renders nothing without progress context', () => {
+    // PreToolUse only speaks when shouldSendProgress() let it through; without
+    // that context there is no run duration to report.
     const out = formatRelay({
       hook_event_name: 'PreToolUse',
       tool_name: 'Bash',
       tool_input: { command: 'bun test' },
     })
-    expect(out?.text).toContain('Bash')
-    expect(out?.markdown).toBe(false)
+    expect(out?.text).not.toContain('bun test')
+    expect(out?.text).not.toContain('Bash')
   })
 
   test('stays quiet on successful tool completion', () => {
@@ -192,76 +195,127 @@ describe('formatRelay', () => {
       formatRelay({ hook_event_name: 'SessionEnd', reason: 'clear' })?.text,
     ).toContain('clear')
   })
-
-  test('never puts tool_input in the message', () => {
-    const out = formatRelay({
-      hook_event_name: 'PreToolUse',
-      tool_name: 'Bash',
-      tool_input: { command: 'rm -rf /secret/path && deploy --token=abc' },
-    })
-    // The command line is the work itself; a progress ping must not carry it
-    // into a chat other people are watching.
-    expect(out?.text).not.toContain('rm -rf')
-    expect(out?.text).not.toContain('token')
-  })
 })
 
-describe('shouldSendToolStatus', () => {
-  const fresh = { lastToolStatusAt: 0, skipped: 0 }
+describe('progress note', () => {
+  const AFTER = 20_000
+  const start = {
+    runSession: 's1',
+    runStartedAt: 1_000,
+    progressSent: false,
+    toolCount: 0,
+  }
 
-  test('sends the first status immediately', () => {
-    const r = shouldSendToolStatus('Bash', 1_000, fresh, 45_000)
-    expect(r.send).toBe(true)
+  test('stays silent while the run is still young', () => {
+    const r = shouldSendProgress({
+      sessionId: 's1',
+      now: 5_000,
+      state: start,
+      progressAfterMs: AFTER,
+    })
+    expect(r.send).toBe(false)
   })
 
-  test('suppresses a second status inside the window', () => {
-    const first = shouldSendToolStatus('Bash', 1_000, fresh, 45_000)
-    const second = shouldSendToolStatus('Bash', 2_000, first.state, 45_000)
+  test('fires once the run outlives the threshold', () => {
+    const r = shouldSendProgress({
+      sessionId: 's1',
+      now: 30_000,
+      state: start,
+      progressAfterMs: AFTER,
+    })
+    expect(r.send).toBe(true)
+    expect(r.send && r.elapsedMs).toBe(29_000)
+  })
+
+  test('fires at most once per run', () => {
+    const first = shouldSendProgress({
+      sessionId: 's1',
+      now: 30_000,
+      state: start,
+      progressAfterMs: AFTER,
+    })
+    const second = shouldSendProgress({
+      sessionId: 's1',
+      now: 60_000,
+      state: first.state,
+      progressAfterMs: AFTER,
+    })
     expect(second.send).toBe(false)
   })
 
-  test('sends again once the window has passed', () => {
-    const first = shouldSendToolStatus('Bash', 1_000, fresh, 45_000)
-    const later = shouldSendToolStatus('Bash', 50_000, first.state, 45_000)
-    expect(later.send).toBe(true)
+  test('a new run resets the clock and the once-only flag', () => {
+    const done = shouldSendProgress({
+      sessionId: 's1',
+      now: 30_000,
+      state: start,
+      progressAfterMs: AFTER,
+    }).state
+    const fresh = beginRun('s1', 100_000)
+    const r = shouldSendProgress({
+      sessionId: 's1',
+      now: 105_000,
+      state: fresh,
+      progressAfterMs: AFTER,
+    })
+    expect(done.progressSent).toBe(true)
+    expect(r.send).toBe(false)
   })
 
-  test('reports how many were coalesced', () => {
-    let state = shouldSendToolStatus('Bash', 1_000, fresh, 45_000).state
-    for (const t of [2_000, 3_000, 4_000]) {
-      state = shouldSendToolStatus('Bash', t, state, 45_000).state
+  test('a different session starts its own run', () => {
+    const r = shouldSendProgress({
+      sessionId: 's2',
+      now: 30_000,
+      state: start,
+      progressAfterMs: AFTER,
+    })
+    expect(r.send).toBe(false)
+    expect(r.state.runSession).toBe('s2')
+  })
+
+  test('counts the tools seen in the run', () => {
+    let st = beginRun('s1', 0)
+    for (const t of [1_000, 2_000, 3_000]) {
+      st = shouldSendProgress({
+        sessionId: 's1',
+        now: t,
+        state: st,
+        progressAfterMs: AFTER,
+      }).state
     }
-    const out = shouldSendToolStatus('Bash', 50_000, state, 45_000)
-    expect(out.send).toBe(true)
-    expect(out.send && out.skipped).toBe(3)
+    const out = shouldSendProgress({
+      sessionId: 's1',
+      now: 30_000,
+      state: st,
+      progressAfterMs: AFTER,
+    })
+    expect(out.send && out.toolCount).toBe(4)
   })
 
-  test('resets the counter after sending', () => {
-    let state = shouldSendToolStatus('Bash', 1_000, fresh, 45_000).state
-    state = shouldSendToolStatus('Bash', 2_000, state, 45_000).state
-    state = shouldSendToolStatus('Bash', 50_000, state, 45_000).state
-    expect(state.skipped).toBe(0)
+  test('progressAfterMs of 0 disables it entirely', () => {
+    const r = shouldSendProgress({
+      sessionId: 's1',
+      now: 999_999,
+      state: start,
+      progressAfterMs: 0,
+    })
+    expect(r.send).toBe(false)
   })
 })
 
-describe('formatRelay heartbeat', () => {
-  test('reports the total number of tools, not the command', () => {
+describe('progress rendering', () => {
+  test('reports elapsed time and tool count, never the command', () => {
     const out = formatRelay(
-      { hook_event_name: 'PreToolUse', tool_name: 'Bash', tool_input: {} },
-      14,
-      false,
+      {
+        hook_event_name: 'PreToolUse',
+        tool_name: 'Bash',
+        tool_input: { command: 'deploy --token=abc' },
+      },
+      { elapsedMs: 45_000, toolCount: 12 },
     )
-    expect(out?.text).toContain('15')
+    expect(out?.text).toContain('45s')
+    expect(out?.text).toContain('12')
+    expect(out?.text).not.toContain('token')
     expect(out?.text).not.toContain('Bash')
-  })
-
-  test('names the tool when it carries no work content', () => {
-    const out = formatRelay(
-      { hook_event_name: 'PreToolUse', tool_name: 'WebSearch', tool_input: {} },
-      0,
-      true,
-    )
-    expect(out?.text).toContain('WebSearch')
   })
 })
 

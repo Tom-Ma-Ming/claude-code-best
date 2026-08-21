@@ -19,9 +19,21 @@ export interface RelayConfig {
   prompts: boolean
   /** The agent's reply at the end of each turn. */
   replies: boolean
-  /** A compact "running X" / "finished" line — not every tool's payload. */
-  toolStatus: boolean
-  /** Tool failures and turns killed by an API error. */
+  /**
+   * One "still working" note per run, sent only if the run outlives
+   * {@link progressAfterMs}.
+   *
+   * Time-based rather than tool-based: a run's length is what a spectator
+   * actually wants to know about, and a fast run that happened to call thirty
+   * tools should stay silent.
+   */
+  progress: boolean
+  /**
+   * Broadcast every tool invocation. Off by default — a normal run makes
+   * dozens of calls, and relaying them buries the answer.
+   */
+  toolCalls: boolean
+  /** Turn-level failures: the run died on an API error. */
   errors: boolean
   /** Session started / ended. Separate from errors: quitting is not a failure,
    *  and with several projects you need to know *which* one just stopped. */
@@ -37,15 +49,21 @@ export interface ChannelConfig {
   /** Conversation to send into. Set by bind for both modes. */
   boundConversationId?: string
   relay: RelayConfig
+  /** Override for {@link DEFAULT_PROGRESS_AFTER_MS}. */
+  progressAfterMs?: number
 }
 
 export const DEFAULT_RELAY: RelayConfig = {
   prompts: true,
   replies: true,
-  toolStatus: true,
+  progress: true,
+  toolCalls: false,
   errors: true,
   session: true,
 }
+
+/** How long a run must last before the single progress note is sent. 0 = off. */
+export const DEFAULT_PROGRESS_AFTER_MS = 20_000
 
 /**
  * Unbound default. `mode: private` with no bound user means "not configured
@@ -75,6 +93,7 @@ export function loadChannelConfig(profile?: string): ChannelConfig {
       boundUserNick: parsed.boundUserNick,
       boundConversationId: parsed.boundConversationId,
       relay: { ...DEFAULT_RELAY, ...(parsed.relay ?? {}) },
+      progressAfterMs: parsed.progressAfterMs ?? DEFAULT_PROGRESS_AFTER_MS,
     }
   } catch {
     return { ...DEFAULT_CONFIG, relay: { ...DEFAULT_RELAY } }

@@ -196,22 +196,41 @@ ccb dingtalk hooks install
 
 写进 `~/.ccb/settings.json`，装完**重启 ccb 会话**生效。
 
-镜像四类内容，各自可开关：
+镜像的内容，各自可开关：
 
-| 类别 | 内容 | Hook |
+| 类别 | 默认 | 内容 |
 |------|------|------|
-| `prompts` | 你在终端输入的指令 | `UserPromptSubmit` |
-| `replies` | ccb 每轮的最终回复 | `Stop` |
-| `toolStatus` | 正在执行什么工具（**已节流**，见下）| `PreToolUse` |
-| `errors` | 工具报错/超时/中断、轮次因 API 错误中止 | `PostToolUseFailure` `StopFailure` |
-| `session` | 会话开始 / 结束（带项目名）| `SessionStart` `SessionEnd` |
+| `prompts` | 开 | 你在终端输入的指令 |
+| `replies` | 开 | ccb 每轮的最终回复 |
+| `progress` | 开 | **一次运行最多一条**「还在进行中」，且只在运行超过 20 秒时发 |
+| `toolCalls` | **关** | 每个工具调用都播报。很吵，按需开 |
+| `errors` | 开 | 轮次因 API 错误中止 |
+| `session` | 开 | 会话开始 / 结束（带项目名）|
 
 ```bash
-ccb dingtalk relay off toolStatus   # 嫌吵就关掉
-ccb dingtalk relay on toolStatus
+ccb dingtalk relay on toolCalls    # 真要看每个工具
+ccb dingtalk relay off progress
 ccb dingtalk hooks status
 ccb dingtalk hooks uninstall
 ```
+
+### 进度为什么按时长而不按工具数
+
+早期版本对每个工具调用发心跳，哪怕加了节流仍然吵——因为**工具数量不是你关心的东西**。一次跑三十个工具的快速任务不该打扰任何人；真正值得说一声的是「这活儿干了很久还没完」。
+
+所以现在是：一次运行**最多一条**，且只在运行时长超过阈值时发：
+
+```
+⏳ 任务还在进行中（45s，12 个工具），完成后会把结果发给你。
+```
+
+阈值可调，写进 profile 的 `config.json`：
+
+```jsonc
+{ "progressAfterMs": 20000 }   // 0 表示完全关掉
+```
+
+时钟锚在 `UserPromptSubmit`（这一轮开始），不是「距上次工具多久」。
 
 > **工具成功完成时不发消息**。成功已经隐含在下一条状态行或最终回复里，再发一遍只会让消息量翻倍。只有失败才通知。
 
@@ -222,20 +241,11 @@ ccb dingtalk hooks uninstall
 1. **45 秒内最多一条** —— 期间的调用折叠进去，显示成 `⏳ 仍在工作（15 个工具）`
 2. **不发工具名，更不发参数** —— 详见下方
 
-### 工具状态不会泄露你在干什么
+### 进度消息不会泄露你在干什么
 
-早期版本会把 `tool_input` 一并推送，也就是把 **bash 命令原文、Edit 的改动内容**发进群里。围观者不该看到这些。
+进度消息只报**时长和工具数量**，不带工具名，更不带参数。
 
-现在的状态消息是纯心跳：只说「仍在工作 + 已执行多少个工具」，**不带任何参数**。承载工作内容的工具连名字都不报：
-
-| 不报名的工具 | 原因 |
-|---|---|
-| `Bash` `PowerShell` `BashOutput` | 命令行本身就是工作内容 |
-| `Edit` `MultiEdit` `Write` `NotebookEdit` | 改动内容 |
-| `Read` `Glob` `Grep` `TodoWrite` | 高频，且带文件路径 |
-| `ExecuteExtraTool` `SearchExtraTools` | ccb 的延迟工具加载机制，纯管道不是进度 |
-
-它们仍然计入总数，所以你能看到「15 个工具」这种进度，只是看不到内容。
+这点是有意的：`tool_input` 就是 bash 命令原文、Edit 的改动内容、被写入的文件。把它推进群里等于把工作内容广播给所有围观的人。开了 `toolCalls` 之后同样只报工具名，不报参数。
 
 每次 hook 都是独立进程，所以窗口状态存在 `relay-state.json` 里而不是内存。
 

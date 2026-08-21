@@ -1,7 +1,11 @@
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { basename, join } from 'node:path'
 import { getStateDir, loadAccount, stateDirPath } from './accounts.js'
-import { loadChannelConfig, outboundTarget } from './config.js'
+import {
+  DEFAULT_PROGRESS_AFTER_MS,
+  loadChannelConfig,
+  outboundTarget,
+} from './config.js'
 import { sendMarkdown, sendText } from './send.js'
 import { ConversationType } from './types.js'
 import type { RelayConfig } from './config.js'
@@ -45,8 +49,13 @@ export function relayCategory(event: string): keyof RelayConfig | null {
       return 'replies'
     case 'PreToolUse':
     case 'PostToolUse':
-      return 'toolStatus'
+      // PreToolUse is the only per-tool signal we get, so it doubles as the
+      // clock that decides whether a run has become slow enough to announce.
+      return 'toolCalls'
     case 'PostToolUseFailure':
+      // A failed tool is usually recovered from within the same run; only the
+      // turn dying is worth interrupting a chat for.
+      return 'toolCalls'
     case 'StopFailure':
       return 'errors'
     case 'SessionStart':
@@ -58,52 +67,27 @@ export function relayCategory(event: string): keyof RelayConfig | null {
 }
 
 /**
- * Tools that never announce themselves by name.
+ * Per-run relay state.
  *
- * Two reasons, and the second matters more: they fire constantly (Read/Grep
- * run dozens of times a turn), and the interesting ones carry the actual work
- * — a Bash command line, an Edit's diff. Naming those in a group chat
- * broadcasts what is being run and changed to everyone watching.
- *
- * They still count toward the heartbeat, so a spectator sees "still working,
- * 23 tools" without seeing the contents.
+ * Each hook invocation is its own process, so "has this run already reported
+ * progress" lives on disk keyed by session.
  */
-const QUIET_TOOLS = new Set([
-  // High-frequency reads
-  'Read',
-  'Glob',
-  'Grep',
-  'NotebookRead',
-  'TodoWrite',
-  'TaskList',
-  'TaskGet',
-  // Carry command lines / file contents — never broadcast these
-  'Bash',
-  'BashOutput',
-  'PowerShell',
-  'Edit',
-  'MultiEdit',
-  'Write',
-  'NotebookEdit',
-  // ccb's deferred-tool loading machinery — pure plumbing, not progress
-  'ExecuteExtraTool',
-  'SearchExtraTools',
-  'SearchExtraToolsTool',
-])
-
-/**
- * Minimum gap between tool-status messages.
- *
- * PreToolUse fires per tool call, and a single turn routinely makes dozens —
- * relaying each one floods the chat. Status is coalesced into at most one
- * message per window, carrying the current tool plus how many went by since
- * the last update.
- */
-const TOOL_STATUS_THROTTLE_MS = 45_000
-
 interface RelayState {
-  lastToolStatusAt: number
-  skipped: number
+  /** Session whose run is in flight. */
+  runSession: string
+  /** When that run started (UserPromptSubmit). */
+  runStartedAt: number
+  /** Whether the single progress note has already gone out for this run. */
+  progressSent: boolean
+  /** Tool calls seen in this run, reported alongside the progress note. */
+  toolCount: number
+}
+
+const EMPTY_STATE: RelayState = {
+  runSession: '',
+  runStartedAt: 0,
+  progressSent: false,
+  toolCount: 0,
 }
 
 function relayStatePath(): string {
@@ -112,17 +96,14 @@ function relayStatePath(): string {
 
 function loadRelayState(): RelayState {
   const path = relayStatePath()
-  if (!existsSync(path)) return { lastToolStatusAt: 0, skipped: 0 }
+  if (!existsSync(path)) return { ...EMPTY_STATE }
   try {
     const parsed = JSON.parse(
       readFileSync(path, 'utf-8'),
     ) as Partial<RelayState>
-    return {
-      lastToolStatusAt: parsed.lastToolStatusAt ?? 0,
-      skipped: parsed.skipped ?? 0,
-    }
+    return { ...EMPTY_STATE, ...parsed }
   } catch {
-    return { lastToolStatusAt: 0, skipped: 0 }
+    return { ...EMPTY_STATE }
   }
 }
 
@@ -131,45 +112,61 @@ function saveRelayState(state: RelayState): void {
     getStateDir()
     writeFileSync(relayStatePath(), JSON.stringify(state), 'utf-8')
   } catch {
-    // Throttling is best-effort; a failed write must not break the hook.
+    // Progress tracking is best-effort; a failed write must not break the hook.
   }
 }
 
 export function resetRelayStateForTests(): void {
-  saveRelayState({ lastToolStatusAt: 0, skipped: 0 })
+  saveRelayState({ ...EMPTY_STATE })
 }
 
 /**
- * Decide whether this tool call should produce a status message.
+ * Decide whether a tool call should trigger the run's progress note.
  *
- * Each hook invocation is its own process, so the window is tracked on disk
- * rather than in memory.
+ * Exactly one note per run, and only once the run has outlived
+ * `progressAfterMs`. A fast run that happened to call thirty tools stays
+ * silent — what a spectator wants to know is that something is taking a
+ * while, not what it is doing.
  */
-export function shouldSendToolStatus(
-  toolName: string,
-  now: number,
-  state: RelayState,
-  throttleMs = TOOL_STATUS_THROTTLE_MS,
-):
+export function shouldSendProgress(params: {
+  sessionId: string
+  now: number
+  state: RelayState
+  progressAfterMs: number
+}):
   | { send: false; state: RelayState }
-  | { send: true; skipped: number; named: boolean; state: RelayState } {
-  // 0 means "never sent" — without this the first status of a session is
-  // suppressed whenever `now` happens to be smaller than the window.
-  const withinWindow =
-    state.lastToolStatusAt !== 0 && now - state.lastToolStatusAt < throttleMs
+  | { send: true; elapsedMs: number; toolCount: number; state: RelayState } {
+  const { sessionId, now, state, progressAfterMs } = params
+  const sameRun = state.runSession === sessionId && state.runStartedAt > 0
+  const base: RelayState = sameRun
+    ? { ...state, toolCount: state.toolCount + 1 }
+    : {
+        runSession: sessionId,
+        runStartedAt: now,
+        progressSent: false,
+        toolCount: 1,
+      }
 
-  if (withinWindow) {
-    return { send: false, state: { ...state, skipped: state.skipped + 1 } }
-  }
+  if (progressAfterMs <= 0) return { send: false, state: base }
+  if (base.progressSent) return { send: false, state: base }
+  if (now - base.runStartedAt < progressAfterMs)
+    return { send: false, state: base }
 
-  // Past the window: emit a heartbeat. Quiet tools contribute the count but
-  // not their name, so a Bash-only turn still reports progress without
-  // broadcasting the command.
   return {
     send: true,
-    skipped: state.skipped,
-    named: !QUIET_TOOLS.has(toolName),
-    state: { lastToolStatusAt: now, skipped: 0 },
+    elapsedMs: now - base.runStartedAt,
+    toolCount: base.toolCount,
+    state: { ...base, progressSent: true },
+  }
+}
+
+/** Mark the start of a run so the progress clock is anchored to the prompt. */
+export function beginRun(sessionId: string, now: number): RelayState {
+  return {
+    runSession: sessionId,
+    runStartedAt: now,
+    progressSent: false,
+    toolCount: 0,
   }
 }
 
@@ -247,8 +244,7 @@ export function isChannelEcho(prompt: string): boolean {
 /** Render a hook payload as the line a spectator should see, or null to skip. */
 export function formatRelay(
   payload: HookPayload,
-  skippedSinceLast = 0,
-  nameTool = true,
+  progress?: { elapsedMs: number; toolCount: number },
 ): {
   text: string
   markdown: boolean
@@ -281,22 +277,22 @@ export function formatRelay(
     }
 
     case 'PreToolUse': {
-      // tool_input is deliberately omitted: it is the Bash command line, the
-      // Edit diff, the file being written. A progress ping must not carry the
-      // work itself into a chat other people are watching.
-      const total = skippedSinceLast + 1
-      const what =
-        nameTool && payload.tool_name ? `${payload.tool_name} · ` : ''
+      // Rendered only when shouldSendProgress() let it through, i.e. the run
+      // has been going a while. Carries no tool name and no tool_input: the
+      // command line and the diff are the work itself, and a progress ping
+      // must not broadcast them to whoever is watching the chat.
+      const secs = Math.round((progress?.elapsedMs ?? 0) / 1000)
+      const tools = progress?.toolCount ?? 0
       return {
-        text: `⏳ ${what}仍在工作（${total} 个工具）`,
+        text: `⏳ 任务还在进行中（${secs}s，${tools} 个工具），完成后会把结果发给你。`,
         markdown: false,
-        title: '执行中',
+        title: '处理中',
       }
     }
 
     case 'PostToolUse':
-      // Success is already implied by the next status line or the final reply;
-      // echoing every completion doubles the traffic for no new information.
+      // Success is implied by the final reply; echoing every completion
+      // doubles the traffic for no new information.
       return null
 
     case 'PostToolUseFailure': {
@@ -365,21 +361,27 @@ export async function relayHookPayload(payload: HookPayload): Promise<void> {
   const account = loadAccount()
   if (!account) return
 
-  let skipped = 0
-  let named = true
-  if (category === 'toolStatus') {
-    const decision = shouldSendToolStatus(
-      payload.tool_name ?? '',
-      Date.now(),
-      loadRelayState(),
-    )
-    saveRelayState(decision.state)
-    if (!decision.send) return
-    skipped = decision.skipped
-    named = decision.named
+  // A prompt anchors the run clock: the progress note measures how long the
+  // run has taken, not how long since the last tool.
+  if (event === 'UserPromptSubmit') {
+    saveRelayState(beginRun(payload.session_id ?? '', Date.now()))
   }
 
-  const rendered = formatRelay(payload, skipped, named)
+  let progress: { elapsedMs: number; toolCount: number } | undefined
+  if (event === 'PreToolUse') {
+    if (!config.relay.progress) return
+    const decision = shouldSendProgress({
+      sessionId: payload.session_id ?? '',
+      now: Date.now(),
+      state: loadRelayState(),
+      progressAfterMs: config.progressAfterMs ?? DEFAULT_PROGRESS_AFTER_MS,
+    })
+    saveRelayState(decision.state)
+    if (!decision.send) return
+    progress = { elapsedMs: decision.elapsedMs, toolCount: decision.toolCount }
+  }
+
+  const rendered = formatRelay(payload, progress)
   if (!rendered) return
 
   const target = {

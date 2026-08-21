@@ -50,7 +50,7 @@ function printUsage(): void {
       '  ccb dingtalk hooks install      Mirror this terminal into DingTalk',
       '  ccb dingtalk hooks uninstall    Stop mirroring',
       '  ccb dingtalk hooks status       Show whether mirroring is wired up',
-      '  ccb dingtalk relay <on|off> <k> Toggle prompts/replies/toolStatus/errors',
+      '  ccb dingtalk relay <on|off> <k> prompts|replies|progress|toolCalls|errors|session',
       '  ccb dingtalk profiles           List stored credential profiles',
       '  ccb dingtalk access pair <code> Approve a pairing code',
       '  ccb dingtalk access list        List paired sender IDs',
@@ -431,7 +431,8 @@ function runRelayToggle(args: string[]): void {
   const keys = [
     'prompts',
     'replies',
-    'toolStatus',
+    'progress',
+    'toolCalls',
     'errors',
     'session',
   ] as const

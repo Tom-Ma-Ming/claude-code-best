@@ -33,7 +33,8 @@ const PRIVATE = {
   relay: {
     prompts: true,
     replies: true,
-    toolStatus: true,
+    progress: true,
+    toolCalls: false,
     errors: true,
     session: true,
   },
@@ -44,7 +45,8 @@ const GROUP = {
   relay: {
     prompts: true,
     replies: true,
-    toolStatus: true,
+    progress: true,
+    toolCalls: false,
     errors: true,
     session: true,
   },
@@ -75,7 +77,8 @@ describe('loadChannelConfig', () => {
     expect(c.relay).toEqual({
       prompts: false,
       replies: true,
-      toolStatus: true,
+      progress: true,
+      toolCalls: false,
       errors: true,
       session: true,
     })
