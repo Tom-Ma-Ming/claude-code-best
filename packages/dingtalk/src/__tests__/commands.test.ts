@@ -25,10 +25,9 @@ describe('handleChannelCommand', () => {
     expect(handleChannelCommand('帮我跑一下测试')).toBeNull()
   })
 
-  test('ignores an unknown slash command so the agent still sees it', () => {
-    // /compact and skills are ccb's, not the channel's — passing them through
-    // is what lets isBridgeSafeCommand() decide.
-    expect(handleChannelCommand('/compact')).toBeNull()
+  test('passes skills through to the agent', () => {
+    // Skills expand to text and genuinely work from a chat; ccb's own
+    // terminal commands do not, and are intercepted separately below.
     expect(handleChannelCommand('/skill:review')).toBeNull()
   })
 
@@ -82,5 +81,40 @@ describe('handleChannelCommand', () => {
   test('accepts the Chinese aliases', () => {
     expect(handleChannelCommand('/状态')).not.toBeNull()
     expect(handleChannelCommand('/帮助')).not.toBeNull()
+  })
+})
+
+describe('ccb slash commands from chat', () => {
+  test.each([
+    '/cost',
+    '/model',
+    '/compact',
+    '/clear',
+    '/context',
+  ])('intercepts %s instead of letting the model guess', cmd => {
+    const reply = handleChannelCommand(cmd)?.reply
+    expect(reply).toContain('终端命令')
+    expect(reply).toContain('不会被执行')
+  })
+
+  test('explains why, so the behaviour is not mistaken for a bug', () => {
+    expect(handleChannelCommand('/cost')?.reply).toContain('<channel>')
+  })
+
+  test('points at what the channel does support', () => {
+    expect(handleChannelCommand('/model')?.reply).toContain('/relay')
+  })
+
+  test('channel commands still win over the interception list', () => {
+    // /status is the channel's own — it must answer, not refuse.
+    expect(handleChannelCommand('/status')?.reply).toContain('模式')
+  })
+
+  test('a skill invocation is still passed to the agent', () => {
+    expect(handleChannelCommand('/skill:review')).toBeNull()
+  })
+
+  test('an unknown slash command is still passed through', () => {
+    expect(handleChannelCommand('/whatever')).toBeNull()
   })
 })

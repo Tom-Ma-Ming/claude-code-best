@@ -117,5 +117,53 @@ export function handleChannelCommand(
     return { reply: `已${state === 'on' ? '打开' : '关闭'} ${key}` }
   }
 
+  // ccb's own slash commands do not survive the trip from a chat.
+  //
+  // Inbound text is wrapped as `<channel ...>\n/cost\n</channel>` before it
+  // reaches the queue, so it never starts with `/` and the slash dispatcher
+  // never sees a command. The model then receives literal "/cost" as a prompt
+  // and — having no way to run it — improvises an answer. A fabricated cost
+  // figure is worse than a refusal, so intercept these and say plainly that
+  // they are not available from chat.
+  if (CCB_SLASH_COMMANDS.has(lower)) {
+    return {
+      reply: [
+        `「/${verb}」是 ccb 的终端命令，从聊天里发不会被执行。`,
+        '',
+        '（消息进入会话时会被包成 <channel> 标签，因此不会被识别为斜杠命令。',
+        '  如果直接交给模型，它只会照字面猜一个答案。）',
+        '',
+        '频道自己支持的命令：/help /status /relay',
+      ].join('\n'),
+    }
+  }
+
   return null
 }
+
+/**
+ * ccb slash commands worth intercepting.
+ *
+ * Not an exhaustive list of ccb's commands — only the ones a person is likely
+ * to try from a chat, where letting the model guess is the failure mode.
+ */
+const CCB_SLASH_COMMANDS = new Set([
+  'cost',
+  'usage',
+  'model',
+  'thinking',
+  'context',
+  'compact',
+  'clear',
+  'summary',
+  'files',
+  'tools',
+  'stop',
+  'abort',
+  'resume',
+  'continue',
+  'config',
+  'doctor',
+  'agents',
+  'mcp',
+])

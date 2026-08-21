@@ -178,6 +178,14 @@ export async function processMessage(
   msg: DingtalkMessage,
   ctx: ProcessContext,
 ): Promise<void> {
+  // One line per inbound frame, before any gate can drop it. Without this a
+  // message that never arrives and one that arrives and is filtered look
+  // identical from the outside — which is exactly the state that made a
+  // dropped image impossible to diagnose.
+  process.stderr.write(
+    `[dingtalk] inbound msgtype=${msg.msgtype ?? '?'} conv=${msg.conversationId ?? '?'} sender=${msg.senderStaffId ?? msg.senderId ?? '?'} hasContent=${Boolean(msg.content)}\n`,
+  )
+
   const chatId = msg.conversationId
   if (!chatId) return
 
@@ -336,7 +344,18 @@ export async function processMessage(
   let attachmentPath: string | undefined
   let attachmentType: string | undefined
 
-  const category = categoryForMsgType(msg.msgtype || InboundMsgType.TEXT)
+  const msgType = msg.msgtype || InboundMsgType.TEXT
+  const category = categoryForMsgType(msgType)
+  // Why the attachment did not make it, when it did not.
+  let mediaNote: string | undefined
+
+  if (category && !msg.content?.downloadCode) {
+    mediaNote = `（收到一条 ${msgType} 消息，但钉钉没有附带 downloadCode，无法下载）`
+    process.stderr.write(
+      `[dingtalk] ${msgType} message without downloadCode: ${JSON.stringify(msg.content ?? {})}\n`,
+    )
+  }
+
   if (category && msg.content?.downloadCode) {
     const token = await getAccessToken({
       appKey: ctx.account.appKey,
@@ -356,10 +375,32 @@ export async function processMessage(
     if (downloaded) {
       attachmentPath = downloaded.path
       attachmentType = downloaded.type
+    } else {
+      mediaNote = `（收到一条 ${msgType} 消息，但附件下载失败，详见 ccb 的 stderr）`
     }
   }
 
-  if (!text && !attachmentPath) return
+  if (!category && msgType !== InboundMsgType.TEXT && !text) {
+    // An unrecognised type would otherwise vanish without trace.
+    mediaNote = `（收到一条 ${msgType} 消息，ccb 暂不支持这种类型）`
+    process.stderr.write(`[dingtalk] Unsupported msgtype: ${msgType}\n`)
+  }
+
+  // Never drop a message in silence. A sender who gets no reaction at all
+  // cannot tell a lost message from a busy agent, and will just resend.
+  if (!text && !attachmentPath) {
+    if (!mediaNote) return
+    await ctx.onMessage({
+      chatId,
+      senderId,
+      senderNick: msg.senderNick,
+      conversationTitle: msg.conversationTitle,
+      messageId: String(msg.msgId || ''),
+      text: mediaNote,
+      conversationType,
+    })
+    return
+  }
 
   await ctx.onMessage({
     chatId,
@@ -367,7 +408,7 @@ export async function processMessage(
     senderNick: msg.senderNick,
     conversationTitle: msg.conversationTitle,
     messageId: String(msg.msgId || ''),
-    text: text || '(media attachment)',
+    text: [text, mediaNote].filter(Boolean).join('\n') || '(media attachment)',
     conversationType,
     attachmentPath,
     attachmentType,

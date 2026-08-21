@@ -126,3 +126,15 @@ describe('session webhook cache', () => {
     expect(getSessionWebhook('nope')).toBeUndefined()
   })
 })
+
+const { categoryForMsgType } = await import('../media.js')
+
+describe('media messages are never dropped in silence', () => {
+  test('picture is a recognised media type', () => {
+    expect(categoryForMsgType('picture')).toBe('image')
+  })
+
+  test('an unknown type is not treated as media', () => {
+    expect(categoryForMsgType('sticker')).toBeNull()
+  })
+})

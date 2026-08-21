@@ -525,13 +525,13 @@ export function useManageMCPConnections(
                     priority: 'next',
                     isMeta: true,
                     origin: { kind: 'channel', server: client.name } as any,
-                    // bridgeOrigin rather than skipSlashCommands: channel input
-                    // is remote untrusted input, exactly like the Remote Control
-                    // bridge's, so it gets the same gate. isBridgeSafeCommand()
-                    // lets /compact, /clear, /cost and skills through, while
-                    // local-jsx commands (which would pop an Ink picker nobody
-                    // is looking at) still return a helpful error instead.
-                    bridgeOrigin: true,
+                    // Channel content is wrapped in a <channel> tag before it
+                    // reaches the queue, so it never starts with '/' and the
+                    // slash dispatcher never sees a command either way.
+                    // bridgeOrigin was tried here and changed nothing; the
+                    // channel intercepts these commands itself and explains
+                    // that they do not run from a chat.
+                    skipSlashCommands: true,
                   })
                 },
               )
