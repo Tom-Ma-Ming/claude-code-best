@@ -1,5 +1,11 @@
 import { getAccessToken } from './api.js'
-import { acceptsInbound, isBound, loadChannelConfig } from './config.js'
+import { handleChannelCommand } from './commands.js'
+import {
+  acceptsInbound,
+  isBound,
+  isMirrorOnly,
+  loadChannelConfig,
+} from './config.js'
 import { categoryForMsgType, downloadInboundFile } from './media.js'
 import {
   addPendingPairing,
@@ -143,6 +149,17 @@ export async function processMessage(
   // person's 1:1 chat drives the session, in group mode only the bound group.
   // Everything downstream (pairing, permissions) operates inside that scope.
   const channel = loadChannelConfig()
+
+  // Spectator groups are read-only by construction: they see the mirror, but
+  // nothing typed there reaches the agent. Adding the bot to a wide team group
+  // must never hand that group the ability to run commands.
+  if (isMirrorOnly(channel, chatId)) {
+    process.stderr.write(
+      `[dingtalk] Ignoring input from mirror-only group ${chatId}\n`,
+    )
+    return
+  }
+
   const verdict = acceptsInbound(channel, msg)
   if (!verdict.ok) {
     process.stderr.write(`[dingtalk] Rejected inbound: ${verdict.reason}\n`)
@@ -231,6 +248,28 @@ export async function processMessage(
     conversationType === ConversationType.GROUP
       ? stripAtMention(rawText, ctx.robotNick)
       : rawText.trim()
+
+  // Channel commands are answered here rather than by the agent: the binding
+  // and relay switches are known only to this process, and answering locally
+  // also works while the agent is mid-run.
+  if (text) {
+    const handled = handleChannelCommand(text)
+    if (handled) {
+      try {
+        await sendText({
+          account: ctx.account,
+          target,
+          text: handled.reply,
+          signal: ctx.signal,
+        })
+      } catch (error) {
+        process.stderr.write(
+          `[dingtalk] Failed to answer channel command: ${error instanceof Error ? error.message : String(error)}\n`,
+        )
+      }
+      return
+    }
+  }
 
   // A permission verdict is a control message, not a prompt — consume it and
   // return so it never reaches the model as user input.

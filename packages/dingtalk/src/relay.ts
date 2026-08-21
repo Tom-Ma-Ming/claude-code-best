@@ -4,7 +4,7 @@ import { getStateDir, loadAccount, stateDirPath } from './accounts.js'
 import {
   DEFAULT_PROGRESS_AFTER_MS,
   loadChannelConfig,
-  outboundTarget,
+  relayTargets,
 } from './config.js'
 import { sendMarkdown, sendText } from './send.js'
 import { ConversationType } from './types.js'
@@ -355,8 +355,9 @@ export async function relayHookPayload(payload: HookPayload): Promise<void> {
   const config = loadChannelConfig()
   if (!config.relay[category]) return
 
-  const chatId = outboundTarget(config)
-  if (!chatId) return
+  // Fan out to the driving conversation and every spectator group.
+  const targets = relayTargets(config)
+  if (targets.length === 0) return
 
   const account = loadAccount()
   if (!account) return
@@ -384,23 +385,32 @@ export async function relayHookPayload(payload: HookPayload): Promise<void> {
   const rendered = formatRelay(payload, progress)
   if (!rendered) return
 
-  const target = {
-    chatId,
-    conversationType:
-      config.mode === 'group'
-        ? ConversationType.GROUP
-        : ConversationType.SINGLE,
-    senderId: config.boundUserId,
-  }
-
-  if (rendered.markdown) {
-    await sendMarkdown({
-      account,
-      target,
-      title: rendered.title,
-      text: rendered.text,
-    })
-  } else {
-    await sendText({ account, target, text: rendered.text })
+  for (const chatId of targets) {
+    const target = {
+      chatId,
+      conversationType:
+        chatId === config.boundConversationId && config.mode === 'private'
+          ? ConversationType.SINGLE
+          : ConversationType.GROUP,
+      senderId: config.boundUserId,
+    }
+    try {
+      if (rendered.markdown) {
+        await sendMarkdown({
+          account,
+          target,
+          title: rendered.title,
+          text: rendered.text,
+        })
+      } else {
+        await sendText({ account, target, text: rendered.text })
+      }
+    } catch (error) {
+      // One unreachable spectator group must not stop the others.
+      process.stderr.write(
+        `[dingtalk] relay to ${chatId} failed: ${error instanceof Error ? error.message : String(error)}
+`,
+      )
+    }
   }
 }

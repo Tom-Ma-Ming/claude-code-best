@@ -113,7 +113,14 @@ export {
   outboundTarget,
   saveChannelConfig,
 } from './config.js'
+export {
+  DEFAULT_PROGRESS_AFTER_MS,
+  isMirrorOnly,
+  relayTargets,
+} from './config.js'
 export type { ChannelConfig, ChannelMode, RelayConfig } from './config.js'
+export { handleChannelCommand } from './commands.js'
+export type { ChannelCommandResult } from './commands.js'
 export { applyBinding, waitForFirstMessage } from './bind.js'
 export type { BindResult } from './bind.js'
 
@@ -121,8 +128,10 @@ export type { BindResult } from './bind.js'
 export {
   formatRelay,
   lastAssistantText,
+  beginRun,
   relayCategory,
   relayHookPayload,
+  shouldSendProgress,
 } from './relay.js'
 export type { HookPayload } from './relay.js'
 export {

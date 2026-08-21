@@ -525,7 +525,13 @@ export function useManageMCPConnections(
                     priority: 'next',
                     isMeta: true,
                     origin: { kind: 'channel', server: client.name } as any,
-                    skipSlashCommands: true,
+                    // bridgeOrigin rather than skipSlashCommands: channel input
+                    // is remote untrusted input, exactly like the Remote Control
+                    // bridge's, so it gets the same gate. isBridgeSafeCommand()
+                    // lets /compact, /clear, /cost and skills through, while
+                    // local-jsx commands (which would pop an Ink picker nobody
+                    // is looking at) still return a helpful error instead.
+                    bridgeOrigin: true,
                   })
                 },
               )

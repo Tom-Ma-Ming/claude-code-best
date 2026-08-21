@@ -47,6 +47,9 @@ function printUsage(): void {
       '  ccb dingtalk bind --group       Force group mode',
       '  ccb dingtalk bind --private     Force private mode',
       '  ccb dingtalk unbind             Forget the binding',
+      '  ccb dingtalk mirror add <cid>   Add a spectator group (read-only)',
+      '  ccb dingtalk mirror rm <cid>    Remove one',
+      '  ccb dingtalk mirror list        List spectator groups',
       '  ccb dingtalk hooks install      Mirror this terminal into DingTalk',
       '  ccb dingtalk hooks uninstall    Stop mirroring',
       '  ccb dingtalk hooks status       Show whether mirroring is wired up',
@@ -458,6 +461,57 @@ function runRelayToggle(args: string[]): void {
   process.stdout.write(`relay.${key} = ${state === 'on'}\n`)
 }
 
+function runMirror(args: string[]): void {
+  const [action, value] = args
+  const profile = activeProfile()
+  const config = loadChannelConfig(profile)
+  const current = config.mirrorConversations ?? []
+
+  if (!action || action === 'list') {
+    process.stdout.write(
+      current.length > 0
+        ? `Spectator groups:\n${current.map(c => `  · ${c}`).join('\n')}\n`
+        : 'No spectator groups. Add one with `ccb dingtalk mirror add <conversationId>`.\n',
+    )
+    return
+  }
+
+  if (action === 'add' && value) {
+    if (value === config.boundConversationId) {
+      process.stderr.write(
+        'That is the bound conversation — it already receives everything and can drive the session.\n',
+      )
+      process.exit(1)
+    }
+    if (current.includes(value)) {
+      process.stdout.write(`Already a spectator group: ${value}\n`)
+      return
+    }
+    saveChannelConfig(
+      { ...config, mirrorConversations: [...current, value] },
+      profile,
+    )
+    process.stdout.write(
+      `Added spectator group ${value}.\nIt receives the mirror but cannot drive the session.\n`,
+    )
+    return
+  }
+
+  if (action === 'rm' && value) {
+    const next = current.filter(c => c !== value)
+    if (next.length === current.length) {
+      process.stderr.write(`Not a spectator group: ${value}\n`)
+      process.exit(1)
+    }
+    saveChannelConfig({ ...config, mirrorConversations: next }, profile)
+    process.stdout.write(`Removed ${value}.\n`)
+    return
+  }
+
+  printUsage()
+  process.exit(1)
+}
+
 function runProfiles(): void {
   const names = listProfiles()
   const active = activeProfile()
@@ -506,6 +560,7 @@ function runStatus(): void {
       isBound(channel)
         ? `Bound to:      ${channel.mode === 'private' ? `${channel.boundUserNick || channel.boundUserId} (${channel.boundConversationId})` : channel.boundConversationId}`
         : 'Bound to:      (not bound — run `ccb dingtalk bind`)',
+      `Spectators:    ${(channel.mirrorConversations ?? []).length} group(s)`,
       `Relay:         ${
         Object.entries(channel.relay)
           .filter(([, on]) => on)
@@ -641,6 +696,9 @@ export async function handleDingtalkCli(
     }
     case 'unbind':
       runUnbind()
+      return
+    case 'mirror':
+      runMirror(rest)
       return
     case 'notify':
       await runNotify()

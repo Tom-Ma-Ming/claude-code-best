@@ -22,7 +22,9 @@ const {
   acceptsInbound,
   isBound,
   loadChannelConfig,
+  isMirrorOnly,
   outboundTarget,
+  relayTargets,
   saveChannelConfig,
 } = await import('../config.js')
 
@@ -168,5 +170,65 @@ describe('outboundTarget', () => {
 
   test('is null while unbound — never a guess', () => {
     expect(outboundTarget(loadChannelConfig())).toBeNull()
+  })
+})
+
+describe('spectator groups', () => {
+  const BOUND = {
+    ...PRIVATE,
+    mirrorConversations: ['group-a', 'group-b'],
+  }
+
+  test('relayTargets includes the bound conversation and every mirror', () => {
+    expect(relayTargets(BOUND)).toEqual(['conv-1', 'group-a', 'group-b'])
+  })
+
+  test('relayTargets de-duplicates', () => {
+    expect(
+      relayTargets({ ...PRIVATE, mirrorConversations: ['conv-1', 'group-a'] }),
+    ).toEqual(['conv-1', 'group-a'])
+  })
+
+  test('relayTargets is empty while unbound', () => {
+    expect(relayTargets(loadChannelConfig())).toEqual([])
+  })
+
+  test('a mirror group is spectator-only', () => {
+    expect(isMirrorOnly(BOUND, 'group-a')).toBe(true)
+  })
+
+  test('the bound conversation is never spectator-only', () => {
+    expect(isMirrorOnly(BOUND, 'conv-1')).toBe(false)
+  })
+
+  test('an unrelated conversation is not a spectator group', () => {
+    expect(isMirrorOnly(BOUND, 'somewhere-else')).toBe(false)
+  })
+})
+
+describe('config migration', () => {
+  test('drops relay keys that no longer exist', () => {
+    writeFileSync(
+      join(stateDir, 'config.json'),
+      JSON.stringify({
+        mode: 'group',
+        boundConversationId: 'c',
+        relay: { toolStatus: true, prompts: false },
+      }),
+    )
+    const relay = loadChannelConfig().relay
+    expect(relay).not.toHaveProperty('toolStatus')
+    expect(relay.prompts).toBe(false)
+    expect(relay.toolCalls).toBe(false)
+  })
+
+  test('ignores non-boolean relay values', () => {
+    writeFileSync(
+      join(stateDir, 'config.json'),
+      JSON.stringify({ relay: { prompts: 'yes', replies: 0 } }),
+    )
+    const relay = loadChannelConfig().relay
+    expect(relay.prompts).toBe(true)
+    expect(relay.replies).toBe(true)
   })
 })

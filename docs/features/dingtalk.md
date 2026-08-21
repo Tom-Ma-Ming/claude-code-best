@@ -186,6 +186,41 @@ Relay:         prompts, replies, toolStatus, errors
 
 绑定者在**某个不相干的群**里发言，不算绑定频道，不会驱动会话。只有「绑定的人 + 绑定的会话」同时满足才放行。
 
+## 围观群：驱动方和观众分开
+
+绑定的会话是**驱动方**——它能指挥 agent。此外可以再挂若干**围观群**：它们收到全部镜像，但**群里说什么都不会进 agent**。
+
+```bash
+ccb dingtalk mirror add cidXXXXXXXX==   # 加一个围观群
+ccb dingtalk mirror list
+ccb dingtalk mirror rm cidXXXXXXXX==
+```
+
+典型用法：你在私聊里指挥，团队群只看进度。往一个大群里拉机器人时这点很重要——**围观群按构造就是只读的**，不存在「群里有人不小心让它跑了个命令」。
+
+> 拿群的 conversationId：把机器人拉进群 @ 一下，`--debug mcp` 的日志里会打出 `chat_id`。
+
+## 聊天命令
+
+有些问题不必打扰 agent，机器人自己就能答——而且 **agent 忙的时候也能用**：
+
+| 命令 | 作用 |
+|---|---|
+| `/help` `/帮助` | 命令列表 |
+| `/status` `/状态` | 绑定状态、围观群数量、转发开关 |
+| `/relay` | 查看转发开关 |
+| `/relay on\|off <项>` | 开关某一项，如 `/relay on toolCalls` |
+
+带参数的命令才会吃掉后文，所以 **`/status 一下部署` 仍然是个问题**，不会被当成命令。
+
+### ccb 自己的斜杠命令
+
+频道消息此前被写死 `skipSlashCommands: true`——所有斜杠命令一律禁掉。现在改用 Remote Control 已有的 `bridgeOrigin` 通道，经 `isBridgeSafeCommand()` 过滤后放行：
+
+**可用**：`/compact` `/clear` `/cost` `/summary` `/files`，以及所有 skill（`/skill:xxx`）
+
+**仍然禁止**：会弹出 Ink 界面的命令（`/model` 之类）——终端前没人看着那个选择器。这类命令会返回一句说明而不是静默失败。
+
 ## 围观模式：把终端镜像到钉钉
 
 在终端里干活，同时让钉钉那边看到全过程：

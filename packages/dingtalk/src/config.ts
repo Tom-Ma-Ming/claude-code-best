@@ -46,8 +46,16 @@ export interface ChannelConfig {
   boundUserId?: string
   /** Display name of the bound user, for nicer status lines. */
   boundUserNick?: string
-  /** Conversation to send into. Set by bind for both modes. */
+  /** Conversation that drives the session. Set by bind for both modes. */
   boundConversationId?: string
+  /**
+   * Extra groups that receive everything but cannot drive the session.
+   *
+   * Separating the driving channel from the audience is the point: one person
+   * steers from a private chat while a team group watches, without that group
+   * being able to issue instructions.
+   */
+  mirrorConversations?: string[]
   relay: RelayConfig
   /** Override for {@link DEFAULT_PROGRESS_AFTER_MS}. */
   progressAfterMs?: number
@@ -75,6 +83,15 @@ export const DEFAULT_CONFIG: ChannelConfig = {
   relay: { ...DEFAULT_RELAY },
 }
 
+function pickRelay(raw: unknown): RelayConfig {
+  const src = (raw ?? {}) as Partial<Record<keyof RelayConfig, unknown>>
+  const out = { ...DEFAULT_RELAY }
+  for (const key of Object.keys(DEFAULT_RELAY) as (keyof RelayConfig)[]) {
+    if (typeof src[key] === 'boolean') out[key] = src[key] as boolean
+  }
+  return out
+}
+
 function configPath(profile?: string): string {
   return join(stateDirPath(profile), 'config.json')
 }
@@ -92,7 +109,11 @@ export function loadChannelConfig(profile?: string): ChannelConfig {
       boundUserId: parsed.boundUserId,
       boundUserNick: parsed.boundUserNick,
       boundConversationId: parsed.boundConversationId,
-      relay: { ...DEFAULT_RELAY, ...(parsed.relay ?? {}) },
+      mirrorConversations: parsed.mirrorConversations ?? [],
+      // Pick known keys only. A plain spread would preserve renamed switches
+      // from an older config (toolStatus → progress/toolCalls), which then show
+      // up in `status` as switches that no longer do anything.
+      relay: pickRelay(parsed.relay),
       progressAfterMs: parsed.progressAfterMs ?? DEFAULT_PROGRESS_AFTER_MS,
     }
   } catch {
@@ -140,7 +161,39 @@ export function acceptsInbound(
   return { ok: true }
 }
 
-/** Where outbound session traffic goes. Null until bind has run. */
+/** Where a direct reply goes. Null until bind has run. */
 export function outboundTarget(config: ChannelConfig): string | null {
   return isBound(config) ? (config.boundConversationId ?? null) : null
+}
+
+/**
+ * Every conversation that should see relayed session traffic: the bound one
+ * plus the spectator groups, de-duplicated.
+ *
+ * Used by the relay, not by `reply` — an answer belongs to the conversation
+ * that asked, while a mirror is for everyone watching.
+ */
+export function relayTargets(config: ChannelConfig): string[] {
+  const seen = new Set<string>()
+  const bound = outboundTarget(config)
+  if (bound) seen.add(bound)
+  for (const id of config.mirrorConversations ?? []) {
+    if (id.trim()) seen.add(id.trim())
+  }
+  return [...seen]
+}
+
+/**
+ * Whether a conversation is a spectator-only group.
+ *
+ * Mirror groups are read-only by construction: they receive the mirror but
+ * nothing typed in them reaches the agent, so adding the bot to a wide team
+ * group never hands that group the ability to run commands.
+ */
+export function isMirrorOnly(
+  config: ChannelConfig,
+  conversationId: string,
+): boolean {
+  if (conversationId === config.boundConversationId) return false
+  return (config.mirrorConversations ?? []).includes(conversationId)
 }
