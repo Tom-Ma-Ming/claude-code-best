@@ -34,6 +34,7 @@ import {
   toError,
 } from '../errors.js'
 import { execFileNoThrow, execFileNoThrowWithCwd } from '../execFileNoThrow.js'
+import { resolveStalePath } from './stalePaths.js'
 import { getFsImplementation } from '../fsOperations.js'
 import { gitExe } from '../git.js'
 import { logError } from '../log.js'
@@ -261,6 +262,60 @@ export function saveMarketplaceToSettings(
  *
  * @returns Configuration object mapping marketplace names to their metadata
  */
+/**
+ * Re-point a remote marketplace whose recorded installLocation no longer exists.
+ *
+ * `installLocation` is stored as an absolute path. Copy a config home — or
+ * rename one, as `~/.claude` → `~/.ccb` did — and every recorded path still
+ * names the old directory. Nothing errors: the checkout is simply not found
+ * there, so the marketplace is treated as absent and every plugin, skill and
+ * plugin-supplied hook it provides silently disappears. Seen in the wild as a
+ * plugin list that reads "No plugins installed" while the checkouts sit intact
+ * one directory over.
+ *
+ * For remote sources the path is redundant — it is always
+ * `<plugins dir>/marketplaces/<name>` — so it can simply be recomputed when
+ * the stored one is gone.
+ *
+ * Local sources are left alone: there `installLocation` IS the user's own
+ * directory (see isLocalMarketplaceSource), and recomputing it would point at
+ * a cache entry that was never theirs.
+ *
+ * Resolved on read rather than rewritten on disk: the registry stays the
+ * user's file, a wrong guess costs nothing, and a config that moves again is
+ * handled without another repair pass.
+ */
+function resolveMarketplaceLocations(
+  config: KnownMarketplacesConfig,
+): KnownMarketplacesConfig {
+  const fs = getFsImplementation()
+  const cacheDir = getMarketplacesCacheDir()
+  let repaired = 0
+
+  const resolved: KnownMarketplacesConfig = {}
+  for (const [name, entry] of Object.entries(config)) {
+    const resolvedPath = resolveStalePath({
+      recorded: entry.installLocation,
+      derived: join(cacheDir, name),
+      exists: (path: string) => fs.existsSync(path),
+      userOwned: isLocalMarketplaceSource(entry.source),
+    })
+    if (resolvedPath === entry.installLocation || !resolvedPath) {
+      resolved[name] = entry
+      continue
+    }
+    repaired += 1
+    resolved[name] = { ...entry, installLocation: resolvedPath }
+  }
+
+  if (repaired > 0) {
+    logForDebugging(
+      `[plugins] ${repaired} marketplace(s) had a stale installLocation from another config home; using the local checkout instead`,
+    )
+  }
+  return resolved
+}
+
 export async function loadKnownMarketplacesConfig(): Promise<KnownMarketplacesConfig> {
   const fs = getFsImplementation()
   const configFile = getKnownMarketplacesFile()
@@ -279,7 +334,7 @@ export async function loadKnownMarketplacesConfig(): Promise<KnownMarketplacesCo
       })
       throw new ConfigParseError(errorMsg, configFile, data)
     }
-    return parsed.data
+    return resolveMarketplaceLocations(parsed.data)
   } catch (error) {
     if (isENOENT(error)) {
       return {}

@@ -320,7 +320,6 @@ const autoModeStateModule = feature('TRANSCRIPT_CLASSIFIER')
 
 // TeleportRepoMismatchDialog, TeleportResumeWrapper dynamically imported at call sites
 import { migrateBypassPermissionsAcceptedToSettings } from './migrations/migrateBypassPermissionsAcceptedToSettings.js';
-import { repairPluginStatePaths } from './migrations/repairPluginStatePaths.js';
 import { migrateEnableAllProjectMcpServersToSettings } from './migrations/migrateEnableAllProjectMcpServersToSettings.js';
 import { migrateFennecToOpus } from './migrations/migrateFennecToOpus.js';
 import { migrateLegacyOpusToCurrent } from './migrations/migrateLegacyOpusToCurrent.js';
@@ -493,11 +492,6 @@ function runMigrations(): void {
         : { ...prev, migrationVersion: CURRENT_MIGRATION_VERSION },
     );
   }
-  // Not version-gated: plugin paths can go stale again at any time (restored
-  // backup, synced dotfiles, a config copied between machines), and a stale
-  // path makes every plugin vanish without an error.
-  repairPluginStatePaths();
-
   // Async migration - fire and forget since it's non-blocking
   migrateChangelogFromConfig().catch(() => {
     // Silently ignore migration errors - will retry on next startup

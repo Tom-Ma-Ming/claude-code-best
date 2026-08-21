@@ -16,6 +16,7 @@
 import { dirname, join } from 'path'
 import { logForDebugging } from '../debug.js'
 import { errorMessage, isENOENT, toError } from '../errors.js'
+import { resolveStalePath } from './stalePaths.js'
 import { getFsImplementation } from '../fsOperations.js'
 import { logError } from '../log.js'
 import {
@@ -312,6 +313,54 @@ function migrateV1ToV2(v1Data: InstalledPluginsFileV1): InstalledPluginsFileV2 {
  *
  * @returns V2 format data with array-per-plugin structure
  */
+/**
+ * Re-point installs whose recorded installPath no longer exists.
+ *
+ * `installPath` is an absolute path into the plugins cache. Copy a config home
+ * — or rename one, as `~/.claude` → `~/.ccb` did — and every recorded path
+ * still names the old directory. The cache entry is then not found, the plugin
+ * is treated as not installed, and its skills and hooks vanish without an
+ * error. A user hit this with a plugin list that read "No plugins installed"
+ * while the cache sat intact one directory over.
+ *
+ * The path is derivable — `plugins/cache/{marketplace}/{plugin}/{version}` —
+ * which is why migrateV1ToV2 already recomputes it rather than trusting the
+ * stored value. This applies the same reasoning to V2 reads.
+ *
+ * Resolved on read rather than rewritten on disk: the registry stays the
+ * user's file, and a config that moves again needs no repair pass.
+ */
+function resolveInstallPaths(
+  data: InstalledPluginsFileV2,
+): InstalledPluginsFileV2 {
+  const fs = getFsImplementation()
+  let repaired = 0
+
+  const plugins: InstalledPluginsMapV2 = {}
+  for (const [pluginId, entries] of Object.entries(data.plugins)) {
+    plugins[pluginId] = entries.map(entry => {
+      const resolved = resolveStalePath({
+        recorded: entry.installPath,
+        // Without a version the cache path cannot be derived.
+        derived: entry.version
+          ? getVersionedCachePath(pluginId, entry.version)
+          : undefined,
+        exists: (path: string) => fs.existsSync(path),
+      })
+      if (resolved === entry.installPath) return entry
+      repaired += 1
+      return { ...entry, installPath: resolved as string }
+    })
+  }
+
+  if (repaired > 0) {
+    logForDebugging(
+      `[plugins] ${repaired} install(s) had a stale installPath from another config home; using the local cache entry instead`,
+    )
+  }
+  return { ...data, plugins }
+}
+
 export function loadInstalledPluginsV2(): InstalledPluginsFileV2 {
   // Return cached V2 data if available
   if (installedPluginsCacheV2 !== null) {
@@ -326,7 +375,9 @@ export function loadInstalledPluginsV2(): InstalledPluginsFileV2 {
     if (rawData) {
       if (rawData.version === 2) {
         // V2 format - validate and return
-        const validated = InstalledPluginsFileSchemaV2().parse(rawData.data)
+        const validated = resolveInstallPaths(
+          InstalledPluginsFileSchemaV2().parse(rawData.data),
+        )
         installedPluginsCacheV2 = validated
         logForDebugging(
           `Loaded ${Object.keys(validated.plugins).length} installed plugins from ${filePath}`,
