@@ -98,6 +98,7 @@
     "@biomejs/biome": "^2.4.12",
     "@claude-code-best/agent-tools": "workspace:*",
     "@claude-code-best/builtin-tools": "workspace:*",
+    "@claude-code-best/devflow": "workspace:*",
     "@claude-code-best/dingtalk": "workspace:*",
     "@claude-code-best/mcp-client": "workspace:*",
     "@claude-code-best/weixin": "workspace:*",

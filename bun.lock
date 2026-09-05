@@ -34,6 +34,7 @@
         "@biomejs/biome": "^2.4.12",
         "@claude-code-best/agent-tools": "workspace:*",
         "@claude-code-best/builtin-tools": "workspace:*",
+        "@claude-code-best/devflow": "workspace:*",
         "@claude-code-best/dingtalk": "workspace:*",
         "@claude-code-best/mcp-client": "workspace:*",
         "@claude-code-best/weixin": "workspace:*",
@@ -257,6 +258,13 @@
       "version": "1.0.0",
       "dependencies": {
         "highlight.js": "latest",
+      },
+    },
+    "packages/devflow": {
+      "name": "@claude-code-best/devflow",
+      "version": "0.1.0",
+      "dependencies": {
+        "@claude-code-best/dingtalk": "workspace:*",
       },
     },
     "packages/dingtalk": {
@@ -611,6 +619,8 @@
     "@claude-code-best/agent-tools": ["@claude-code-best/agent-tools@workspace:packages/agent-tools"],
 
     "@claude-code-best/builtin-tools": ["@claude-code-best/builtin-tools@workspace:packages/builtin-tools"],
+
+    "@claude-code-best/devflow": ["@claude-code-best/devflow@workspace:packages/devflow"],
 
     "@claude-code-best/dingtalk": ["@claude-code-best/dingtalk@workspace:packages/dingtalk"],
 

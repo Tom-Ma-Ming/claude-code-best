@@ -128,6 +128,13 @@ async function main(): Promise<void> {
     return;
   }
 
+  if (args[0] === 'devflow') {
+    profileCheckpoint('cli_devflow_path');
+    const { handleDevflowCli } = await import('@claude-code-best/devflow');
+    process.exitCode = await handleDevflowCli(args.slice(1));
+    return;
+  }
+
   if (args[0] === 'dingtalk') {
     profileCheckpoint('cli_dingtalk_path');
     const { handleDingtalkCli } = await import('@claude-code-best/dingtalk');
