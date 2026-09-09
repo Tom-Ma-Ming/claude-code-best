@@ -68,6 +68,9 @@ bun run rcs
 
 # Docs dev server (Mintlify)
 bun run docs:dev
+
+# Linux x86_64 离线安装包（自带 bun + ripgrep），输出到 release/
+bun run package:linux
 ```
 
 详细的测试规范、覆盖状态和改进计划见 `docs/testing-spec.md`。

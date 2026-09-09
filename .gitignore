@@ -57,3 +57,6 @@ credentials.json
 .test-progress.md
 .squash-tmp/
 .git.*-backup
+
+release/
+.cache/

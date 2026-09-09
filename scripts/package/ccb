@@ -1,0 +1,12 @@
+#!/bin/sh
+# ccb launcher — resolves the install root through symlinks, picks the bun
+# build the CPU can run, and starts the CLI.
+SELF="$(readlink -f "$0" 2>/dev/null || echo "$0")"
+ROOT="$(cd "$(dirname "$SELF")/.." && pwd)"
+BUN="$ROOT/bin/bun"
+# Machines without AVX2 (older Xeons, some VMs) crash the default bun build.
+if [ -r /proc/cpuinfo ] && ! grep -q -m1 ' avx2' /proc/cpuinfo; then
+  [ -x "$ROOT/bin/bun-baseline" ] && BUN="$ROOT/bin/bun-baseline"
+fi
+export CCB_INSTALL_ROOT="$ROOT"
+exec "$BUN" "$ROOT/dist/cli.js" "$@"
