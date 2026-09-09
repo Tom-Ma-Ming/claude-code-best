@@ -44,3 +44,33 @@ ccb doctor
 ## 验证记录
 
 在 `debian:12` 容器（x86_64）里实测：root 安装、`ccb --version`、vendored ripgrep 运行、`ccb devflow skills install`、通过内网网关的 `ccb -p` 无头对话、普通用户 `--prefix` 安装、卸载，全部通过。
+
+## 扩展离线包（skills / 插件 / 工具）
+
+`bun run package:extensions`（即 `python3 scripts/ext-kit.py backup`）把本机装好的所有扩展打成 `release/ccb-extensions-<日期>.tar.gz`：
+
+| 内容 | 来源 | 目标机位置 |
+|---|---|---|
+| skills（symlink 全部解引用） | `~/.ccb/skills` ∪ `~/.claude/skills` ∪ `~/.agents/skills` | `~/.ccb/skills/<name>/` |
+| ECC 库 | `skills/ecc-loader/catalog/ROOT` 指向的目录 | `~/.ccb/ecc/ECC`，并改写 ROOT |
+| 插件 cache + marketplaces + 注册表 | `~/.ccb/plugins` | `~/.ccb/plugins`，注册表里的绝对路径改写 |
+| settings.json / CLAUDE.md / RTK.md / hooks | `~/.ccb` | 合并进目标 `settings.json`（`--overwrite-settings` 则整体覆盖） |
+| Node 22（linux-x64） | nodejs.org | `/opt/ccb-tools/node`，软链 node/npm/npx |
+| memorix（仅生产依赖，无原生模块） | `npm pack` 本机的 memorix | `/opt/ccb-tools/memorix`，软链 `memorix`/`memcode` |
+| codegraph（linux-x64 官方包） | npm | `/opt/ccb-tools/codegraph`，软链 `codegraph` |
+| `~/.claude-mem`、`~/.memorix` 数据 | 仅 `--with-data` | `~/.claude-mem`、`~/.memorix` |
+
+目标机安装（只需要 python3，先装好 ccb 包）：
+
+```bash
+tar xzf ccb-extensions-2026-09-09.tar.gz && cd ccb-extensions-2026-09-09
+sudo python3 install.py --home /home/<user>/.ccb && sudo chown -R <user>:<user> /home/<user>/.ccb
+# 或不用 root：
+python3 install.py --user
+```
+
+安装末尾自动验证：skills 数量、每个插件的 installPath 是否存在、ECC ROOT、node/memorix/codegraph 版本、`ccb plugin list`。
+
+注意：包里的 `home/settings.json` 含本机的 `env`（包括网关 token），按内部资料保管。
+
+在 `python:3.13-slim`（Debian 12）容器里实测：76 个 skill、18 个插件、三个工具全部就绪，带全部插件与 hook 的 `ccb -p` 无头运行正常返回。
