@@ -32,6 +32,7 @@ import { getDefaultSonnetModel, getMainLoopModel } from '../model/model.js'
 import { isPoorModeActive } from '../../commands/poor/poorMode.js'
 import { getAutoModeConfig } from '../settings/settings.js'
 import { sideQuery } from '../sideQuery.js'
+import { requestUntilParsed } from './classifierParseRetry.js'
 import type { LangfuseSpan } from '../../services/langfuse/index.js'
 import { jsonStringify } from '../slowOperations.js'
 import { tokenCountWithEstimation } from '../tokens.js'
@@ -1168,7 +1169,11 @@ export async function classifyYoloAction(
       querySource: 'auto_mode' as const,
       parentSpan,
     }
-    const result = await sideQuery(sideQueryOpts)
+    const { outcome, result } = await requestUntilParsed(
+      () => sideQuery(sideQueryOpts),
+      YOLO_CLASSIFIER_TOOL_NAME,
+      yoloClassifierResponseSchema(),
+    )
     void maybeDumpAutoMode(sideQueryOpts, result, start)
     setLastClassifierRequests([sideQueryOpts])
     const durationMs = Date.now() - start
@@ -1200,20 +1205,29 @@ export async function classifyYoloAction(
       )
     }
 
-    // Extract the tool use result using shared utility
-    const toolUseBlock = extractToolUseBlock(
-      result.content,
-      YOLO_CLASSIFIER_TOOL_NAME,
-    )
-
-    if (!toolUseBlock) {
-      logForDebugging('Auto mode classifier: No tool use block found', {
-        level: 'warn',
-      })
-      logAutoModeOutcome('parse_failure', model, { failureKind: 'no_tool_use' })
+    if (outcome.kind !== 'ok') {
+      // The model never produced the forced tool call (or produced a
+      // malformed one), even after CLASSIFIER_PARSE_ATTEMPTS. That is not a
+      // security verdict — the classifier simply did not answer — so report
+      // it as unavailable: interactive sessions fall back to the normal
+      // permission prompt instead of a silent deny, and headless runs get the
+      // retry guidance. Seen with MiniMax-M3 behind an Anthropic-compatible
+      // gateway, where a run of these denials made the agent abandon its
+      // final step (running the tests) and hand the command back to the user.
+      const failureKind =
+        outcome.kind === 'no_tool_use' ? 'no_tool_use' : 'invalid_schema'
+      logForDebugging(
+        `Auto mode classifier: ${failureKind} after ${outcome.attempts} attempts — treating as unavailable`,
+        { level: 'warn' },
+      )
+      logAutoModeOutcome('parse_failure', model, { failureKind })
       return {
         shouldBlock: true,
-        reason: 'Classifier returned no tool use block - blocking for safety',
+        unavailable: true,
+        reason:
+          outcome.kind === 'no_tool_use'
+            ? `Classifier returned no tool use block after ${outcome.attempts} attempts - treating as unavailable`
+            : `Invalid classifier response after ${outcome.attempts} attempts - treating as unavailable`,
         model,
         usage,
         durationMs,
@@ -1222,30 +1236,7 @@ export async function classifyYoloAction(
         stage1MsgId,
       }
     }
-
-    // Parse response using shared utility
-    const parsed = parseClassifierResponse(
-      toolUseBlock,
-      yoloClassifierResponseSchema(),
-    )
-    if (!parsed) {
-      logForDebugging('Auto mode classifier: Invalid response schema', {
-        level: 'warn',
-      })
-      logAutoModeOutcome('parse_failure', model, {
-        failureKind: 'invalid_schema',
-      })
-      return {
-        shouldBlock: true,
-        reason: 'Invalid classifier response - blocking for safety',
-        model,
-        usage,
-        durationMs,
-        promptLengths,
-        stage1RequestId,
-        stage1MsgId,
-      }
-    }
+    const parsed = outcome.parsed
 
     const classifierResult = {
       thinking: parsed.thinking,
